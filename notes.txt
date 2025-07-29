@@ -1,0 +1,10 @@
+erratta:
+
+please explain waht is meant by the uint8_t blah<1..2^n-1>; notation
+
+concat(... || credentials) should be concat(... || credentials.server_pub_key || credentials.etc)
+
+
+
+
+AUthServerRespond is missing credential_response input
