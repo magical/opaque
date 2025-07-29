@@ -325,11 +325,11 @@ func deriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
 		// Use hash_to_field from [RFC9380] using L = 48,
 		// expand_message_xmd with SHA-256, DST = "HashToScalar-" ||
 		// contextString, and a prime modulus equal to Group.Order().
-		sk := hashToField(deriveInput, "DeriveKeyPair" + contextString)
+		sk := hashToFieldP256(deriveInput, "DeriveKeyPair" + contextString)
 		if sk != nil {
 			pk := nistec.NewP256Point()
 			if _, err := pk.ScalarBaseMult(sk); err == nil {
-				return sk, SerializeElement(pk.Bytes()), nil
+				return sk, SerializeElement(pk.BytesCompressed()), nil
 			}
 		}
 	}
@@ -337,9 +337,9 @@ func deriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
 }
 
 // https://www.rfc-editor.org/rfc/rfc9380.html#name-suites-for-nist-p-256
-func hashToField(msg []byte, TODO string)  []byte {
+func hashToFieldP256(msg []byte, TODO string)  []byte {
 	DST := "HashToScalar-" + contextString
-	//k = 128
+	DST = TODO
 	//H = sha-256
 	L := 48
 	len_in_bytes := 48
@@ -348,6 +348,7 @@ func hashToField(msg []byte, TODO string)  []byte {
 	e := big.NewInt(0)
 	e.SetBytes(tv) // big endian?
 	// reduce scalar tv modulo the order of P-256
+	// TODO: constant time?
 	e.Mod(e, p256Order)
 	return e.Bytes()
 }
@@ -355,12 +356,12 @@ func hashToField(msg []byte, TODO string)  []byte {
 var p256Order *big.Int
 
 func init() {
-	// p = 2^256 + 2^224 + 2^192 + 2^96 - 1
+	// p = 2^256 - 2^224 + 2^192 + 2^96 - 1
 	z := big.NewInt(-1)
 	one := big.NewInt(1)
 	z = z.Add(z, new(big.Int).Lsh(one, 96))
 	z = z.Add(z, new(big.Int).Lsh(one, 192))
-	z = z.Add(z, new(big.Int).Lsh(one, 224))
+	z = z.Sub(z, new(big.Int).Lsh(one, 224))
 	z = z.Add(z, new(big.Int).Lsh(one, 256))
 	p256Order = z
 }
