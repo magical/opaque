@@ -10,4 +10,18 @@ actual := fmt.Sprintf("%x", out)
 if expected != actual {
 	t.Errorf("want %q got %q", expected, actual)
 }
+
+expected = "abba86a6129e366fc877aab32fc4ffc70120d8996c88aee2"+
+          "fe4b32d6c7b6437a647e6c3163d40b76a73cf6a5674ef1d890f95b"+
+          "664ee0afa5359a5c4e07985635bbecbac65d747d3d2da7ec2b8221"+
+          "b17b0ca9dc8a1ac1c07ea6a1e60583e2cb00058e77b7b72a298425"+
+          "cd1b941ad4ec65e8afc50303a22c0f99b0509b4c895f40"
+
+	  out = expand_message_xmd(msg, DST, 0x80)
+	  actual = fmt.Sprintf("%x", out)
+	  if expected != actual {
+	  t.Errorf("want %q got %q", expected, actual)
+	  }
+
+
 }

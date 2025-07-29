@@ -366,37 +366,39 @@ func init() {
 }
 
 func expand_message_xmd(msg []byte, DST string, len_in_bytes int)  []byte {
+	var dstBytesWithLength = make([]byte, 0, len(DST) + 1)
+	dstBytesWithLength = append(dstBytesWithLength, DST...)
+	dstBytesWithLength = append(dstBytesWithLength, uint8(len(DST)))
+
+	var counter = make([]byte, 1)
 	h := NewHash()
-	hash_size := h.Size()
-	ell := (len_in_bytes+(hash_size-1))/hash_size
-	var DST_prime []byte
-	DST_prime = append(DST_prime, DST...)
-	DST_prime = append(DST_prime, uint8(len(DST)))
-	Z_pad := make([]byte, h.BlockSize())
-	len_in_bytes_str := []byte{byte(len_in_bytes>>8), byte(len_in_bytes)}
-	h.Write(Z_pad)
+	h.Write(make([]byte, h.BlockSize()))
 	h.Write(msg)
-	h.Write(len_in_bytes_str)
-	h.Write([]byte{0})
-	h.Write(DST_prime)
+	h.Write([]byte{byte(len_in_bytes>>8), byte(len_in_bytes)})
+	counter[0] = 0
+	h.Write(counter)
+	h.Write(dstBytesWithLength)
 	b0 := h.Sum(nil) // b_0
 	h.Reset()
 	h.Write(b0)
-	h.Write([]byte{1})
-	h.Write(DST_prime)
+	counter[0] = 1
+	h.Write(counter)
+	h.Write(dstBytesWithLength)
 	bi := h.Sum(nil) // b_1
-	b := append([]byte(nil), bi...)
-	for i := 2; i <= ell; i++ {
+	out := append([]byte(nil), bi...)
+	for len(out) < len_in_bytes {
+		h.Reset()
 		for j, x := range b0 {
-			b[j] ^= x
+			bi[j] ^= x
 		}
-		h.Write(b)
-		h.Write([]byte{byte(i)})
-		h.Write(DST_prime)
-		bi = h.Sum(bi[:0])
-		b = append(b, bi...)
+		h.Write(bi)
+		counter[0]++
+		h.Write(counter)
+		h.Write(dstBytesWithLength)
+		bi = h.Sum(bi[:0]) // b_2, etc...
+		out = append(out, bi...)
 	}
-	return b[:len_in_bytes]
+	return out[:len_in_bytes]
 }
 
 // go:noinline
