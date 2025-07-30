@@ -34,9 +34,10 @@ import (
 
 // profile: P256-SHA256, HKDF-SHA-256, HMAC-SHA-256, SHA-256, scrypt(S = zeroes(16), N = 32768, r = 8, p = 1, dkLen = 32), P-256
 
-func Stretch(b []byte) []byte {
+func Stretch(b []byte) ([]byte, nil) {
 	// TODO: scrypt
-	return b
+	// TODO: should take a context.Context, for cancellation
+	return b, nil
 }
 
 var NewHash = sha256.New
@@ -203,7 +204,10 @@ func RecoverCredentials(password []byte, blind []byte, response *CredentialRespo
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	stretchedOutput := Stretch(oprfOutput)
+	stretchedOutput, err := Stretch(oprfOutput)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	kdfInfo := append(oprfOutput, stretchedOutput...)
 	randomizedPassword := hkdf.Extract(NewHash, nil, kdfInfo)
 
