@@ -101,7 +101,10 @@ func (s *ServerState) GenerateKE2(serverID, privKey, pubKey []byte, clientRegRec
 		return KE2{}, err
 	}
 	credentials := CreateCleartextCredentials(pubKey, clientRegRecord.pubKey, serverID, clientID)
-	authResponse := s.AuthServerRespond(credentials, pubKey, clientRegRecord.pubKey, ke1, response)
+	authResponse, err := s.AuthServerRespond(credentials, pubKey, clientRegRecord.pubKey, ke1, response)
+	if err != nil {
+		return KE2{}, err
+	}
 
 	ke2 := KE2{response, *authResponse}
 	return ke2, nil
@@ -322,7 +325,36 @@ func (c *ClientState) AuthClientStart(request *CredentialRequest) (KE1, error) {
 	return c.ke1, nil
 }
 
-func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []byte, clientPubKey []byte, ke1 KE1, response *CredentialResponse) *AuthResponse { return new(AuthResponse) }
+func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []byte, clientPubKey []byte, ke1 KE1, credResponse *CredentialResponse) (*AuthResponse, error) {
+	serverNonce := newRandomNonce()
+	seed := newRandomSeed()
+	// DeriveDiffieHellmanKeyPair
+	serverPrivKeyshare, serverPubKeyshare, err := DeriveKeyPair(seed, "OPAQUE-DeriveDiffieHellmanKeyPair")
+	if err != nil {
+		return nil, err
+	}
+	ke2 := KE2{credResponse, AuthResponse{serverNonce, serverPubKeyshare, nil}}
+	ph := hashPreamble(creds.clientID, ke1, creds.serverID, ke2)
+	preambleHash := ph.Sum(nil)
+
+	dh1 := DiffieHellman(serverPrivKeyshare, ke1.authRequest.clientPubKeyshare)
+	dh2 := DiffieHellman(privKey, ke1.authRequest.clientPubKeyshare)
+	dh3 := DiffieHellman(serverPrivKeyshare, clientPubKey)
+	var ikm []byte
+	ikm = append(ikm, dh1...)
+	ikm = append(ikm, dh2...)
+	ikm = append(ikm, dh3...)
+	km2, km3, sessionKey := DeriveKeys(ikm, preambleHash)
+	hm := hmac.New(NewHash, km2)
+	hm.Write(preambleHash)
+	serverMAC := hm.Sum(nil)
+	ph.Write(serverMAC)
+	hm = hmac.New(NewHash, km3)
+	hm.Write(ph.Sum(nil))
+	s.expectedClientMAC = hm.Sum(nil)
+	s.sessionKey = sessionKey
+	return &AuthResponse{serverNonce, serverPubKeyshare, serverMAC}, nil
+}
 
 var ServerAuthenticationError = errors.New("opaque: server authentication error")
 
