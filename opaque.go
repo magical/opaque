@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"math/big"
+	"hash"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/hmac"
@@ -40,6 +41,8 @@ func Stretch(b []byte) []byte {
 
 var NewHash = sha256.New
 
+var applicationContext []byte
+
 type BlindSigner interface {
 	Blind(input []byte) (blind, blindedElement []byte)
 	Finalize(input, blind, evaluated []byte) ([]byte, error)
@@ -60,20 +63,27 @@ const Noe = 0 //size of serialized element
 const Nok = 32 //size of OPRF private key
 
 type ClientState struct {
+	// oprf state
 	password []byte
 	blind []byte
+	// AKE state
+	clientSecret []byte
+	ke1 KE1
 }
 
-type KE1 struct { credentialRequest *CredentialRequest }
-type KE2 struct { credentialResponse *CredentialResponse; authResponse any }
+type KE1 struct { credentialRequest *CredentialRequest; authRequest AuthRequest }
+type KE2 struct { credentialResponse *CredentialResponse; authResponse AuthResponse }
 type KE3 struct { clientMAC []byte }
 
-func (c *ClientState) GenerateKE1(password []byte) KE1 {
+func (c *ClientState) GenerateKE1(password []byte) (KE1, error) {
 	request, blind := CreateCredentialRequest(password)
 	c.password = password
 	c.blind = blind
-	ke1 := AuthClientStart(request)
-	return ke1
+	ke1, err := c.AuthClientStart(request)
+	if err != nil {
+		return KE1{}, err
+	}
+	return ke1, nil
 }
 
 type ServerState struct {
@@ -91,9 +101,9 @@ func (s *ServerState) GenerateKE2(serverID, privKey, pubKey []byte, clientRegRec
 		return KE2{}, err
 	}
 	credentials := CreateCleartextCredentials(pubKey, clientRegRecord.pubKey, serverID, clientID)
-	authResponse := AuthServerRespond(credentials, pubKey, clientRegRecord.pubKey, ke1, response)
+	authResponse := s.AuthServerRespond(credentials, pubKey, clientRegRecord.pubKey, ke1, response)
 
-	ke2 := KE2{response, authResponse}
+	ke2 := KE2{response, *authResponse}
 	return ke2, nil
 }
 
@@ -104,7 +114,10 @@ func (c *ClientState) GenerateKE3(clientID, serverID []byte, ke2 KE2) (ke3 KE3, 
 	if err != nil {
 		return KE3{}, nil, nil, err
 	}
-	ke3, sessionKey = AuthClientFinalize(credentials, privKey, ke2)
+	ke3, sessionKey, err = c.AuthClientFinalize(credentials, privKey, ke2)
+	if err != nil {
+		return KE3{}, nil, nil, err
+	}
 	return ke3, sessionKey, exportKey, nil
 }
 
@@ -130,6 +143,7 @@ func CreateCredentialRequest(password []byte) (*CredentialRequest, []byte) {
 }
 
 func newRandomNonce() []byte { b := make([]byte, Nn); rand.Read(b); return b }
+func newRandomSeed() [Nseed]byte { var b [Nseed]byte; rand.Read(b[:]); return b }
 
 func CreateCredentialResponse(request *CredentialRequest, pubKey []byte, clientRegRecord *ClientRegRecord, credID, oprfSeed []byte) (*CredentialResponse, error) {
 	var prfInfo = concats(credID, "OprfKey")
@@ -177,7 +191,7 @@ func CreateCredentialResponse(request *CredentialRequest, pubKey []byte, clientR
 const (
 	Npk = 0
 	Nn = 0
-	Nm = 0
+	Nm = sha256.Size
 )
 
 func RecoverCredentials(password []byte, blind []byte, response *CredentialResponse, serverID, clientID []byte) (privKey []byte, credentials *CleartextCredentials, exportKey []byte,  err error) {
@@ -292,12 +306,95 @@ func CreateCleartextCredentials(serverPubKey, clientPubKey, serverID, clientID [
 ///
 
 
-type AuthResponse struct{}
+type AuthRequest struct{clientNonce, clientPubKeyshare []byte}
+type AuthResponse struct{serverNonce, serverPubKeyshare, serverMAC []byte }
 
-func AuthClientStart(request *CredentialRequest) KE1 { return KE1{} }
-func AuthServerRespond(creds *CleartextCredentials, privKey []byte, clientPubKey []byte, ke1 KE1, response *CredentialResponse) *AuthResponse { return new(AuthResponse) }
-func AuthClientFinalize(creds *CleartextCredentials, privKey []byte, ke2 KE2) (_ KE3, sessionKey []byte) {return KE3{}, nil}
+func (c *ClientState) AuthClientStart(request *CredentialRequest) (KE1, error) {
+	nonce := newRandomNonce()
+	seed := newRandomSeed()
+	// DeriveDiffieHellmanKeyPair
+	clientSecret, clientPubKeyshare, err := DeriveKeyPair(seed, "OPAQUE-DeriveDiffieHellmanKeyPair")
+	if err != nil {
+		return KE1{}, err
+	}
+	c.clientSecret = clientSecret
+	c.ke1 = KE1{request, AuthRequest{nonce, clientPubKeyshare}}
+	return c.ke1, nil
+}
 
+func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []byte, clientPubKey []byte, ke1 KE1, response *CredentialResponse) *AuthResponse { return new(AuthResponse) }
+
+var ServerAuthenticationError = errors.New("opaque: server authentication error")
+
+func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []byte, ke2 KE2) (_ KE3, sessionKey []byte, err error) {
+	dh1 := DiffieHellman(c.clientSecret, ke2.authResponse.serverPubKeyshare)
+	dh2 := DiffieHellman(c.clientSecret, creds.serverPubKey)
+	dh3 := DiffieHellman(privKey, ke2.authResponse.serverPubKeyshare)
+	var ikm []byte
+	ikm = append(ikm, dh1...)
+	ikm = append(ikm, dh2...)
+	ikm = append(ikm, dh3...)
+	ph := hashPreamble(creds.clientID, c.ke1, creds.serverID, ke2)
+	preambleHash := ph.Sum(nil)
+	km2, km3, sessionKey := DeriveKeys(ikm, preambleHash)
+	hm := hmac.New(NewHash, km2)
+	hm.Write(preambleHash)
+	expectedTag := hm.Sum(nil)
+	if !hmac.Equal(expectedTag, km3) {
+		return KE3{}, nil, ServerAuthenticationError
+	}
+	// MAC(Hash(preamble || serverTag))
+	hm = hmac.New(NewHash, km3)
+	ph.Write(expectedTag)
+	hm.Write(ph.Sum(nil))
+	clientMAC := hm.Sum(nil)
+	return KE3{clientMAC},sessionKey, nil
+}
+
+func hashPreamble(clientID []byte, ke1 KE1, serverID []byte, ke2 KE2) hash.Hash {
+	h := NewHash()
+	h.Write([]byte("OPAQUEv1-"))
+	h.Write([]byte{byte(len(applicationContext)>>8), byte(len(applicationContext))})
+	h.Write(applicationContext)
+	h.Write([]byte{byte(len(clientID)>>8), byte(len(clientID))})
+	h.Write(clientID)
+	h.Write(ke1.credentialRequest.blindedMessage)
+	h.Write([]byte{byte(len(serverID)>>8),byte(len(serverID))})
+	h.Write(serverID)
+	h.Write(ke2.credentialResponse.evaluatedMessage)
+	h.Write(ke2.credentialResponse.maskingNonce)
+	h.Write(ke2.credentialResponse.maskedResponse)
+	h.Write(ke2.authResponse.serverNonce)
+	h.Write(ke2.authResponse.serverPubKeyshare)
+	return h
+}
+
+func DiffieHellman(privKey, pubKey []byte) []byte {
+	p, err := nistec.NewP256Point().SetBytes(pubKey)
+	if err != nil {
+		panic(err)
+	}
+	p.ScalarMult(p, pubKey)
+	return p.BytesCompressed()
+}
+
+func DeriveKeys(ikm, preambleHash []byte) (km2, km3, sessionKey []byte) {
+	prk := hkdf.Extract(NewHash, ikm, nil)
+	handshakeSecret := DeriveSecret(prk, "HandshakeSecret", preambleHash)
+	sessionKey = DeriveSecret(prk, "SessionKey", preambleHash)
+	km2 = DeriveSecret(handshakeSecret, "ServerMAC", nil)
+	km3 = DeriveSecret(handshakeSecret, "ClientMAC", nil)
+	return km2, km3, sessionKey
+}
+
+func DeriveSecret(secret []byte, label string, transcriptHash []byte) []byte {
+	h := hmac.New(NewHash, secret)
+	Nx := h.Size()
+	h.Write([]byte{byte(Nx>>8), byte(Nx)})
+	h.Write([]byte("OPAQUE-" + label))
+	h.Write(transcriptHash)
+	return h.Sum(nil)
+}
 
 // Deterministic key generation from RFC9497
 //
@@ -322,10 +419,15 @@ func deriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
 	deriveInput = append(deriveInput, 0) // counter
 	for counter := 0; counter < 256; counter++ {
 		deriveInput[len(deriveInput)-1] = uint8(counter)
-		// Use hash_to_field from [RFC9380] using L = 48,
-		// expand_message_xmd with SHA-256, DST = "HashToScalar-" ||
-		// contextString, and a prime modulus equal to Group.Order().
+		// RFC9497
+		// Section 4.3:
+		//  Use hash_to_field from [RFC9380] using L = 48,
+		//  expand_message_xmd with SHA-256, DST = "HashToScalar-" ||
+		//  contextString, and a prime modulus equal to Group.Order().
+		// Section 3.2.1:
+		//  DST="DeriveKeyPair" || contextString
 		sk := hashToFieldP256(deriveInput, "DeriveKeyPair" + contextString)
+		// note: can't fail
 		if sk != nil {
 			pk := nistec.NewP256Point()
 			if _, err := pk.ScalarBaseMult(sk); err == nil {
@@ -337,16 +439,10 @@ func deriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
 }
 
 // https://www.rfc-editor.org/rfc/rfc9380.html#name-suites-for-nist-p-256
-func hashToFieldP256(msg []byte, TODO string)  []byte {
-	DST := "HashToScalar-" + contextString
-	DST = TODO
-	//H = sha-256
-	L := 48
-	len_in_bytes := 48
-	uniform_bytes := expand_message_xmd(msg, DST, len_in_bytes)
-	tv := uniform_bytes[0 : L]
-	e := big.NewInt(0)
-	e.SetBytes(tv) // big endian?
+func hashToFieldP256(msg []byte, DST string)  []byte {
+	const L = 48 // (256 + 128) / 8
+	uniform_bytes := expand_message_xmd(msg, DST, L)
+	e := new(big.Int).SetBytes(uniform_bytes) // big endian
 	// reduce scalar tv modulo the order of P-256
 	// TODO: constant time?
 	e.Mod(e, p256Order)
@@ -408,3 +504,5 @@ func secureClear(b []byte) {
 		b[i] = 0
 	}
 }
+
+///------

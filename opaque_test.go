@@ -37,5 +37,4 @@ func TestHashToFieldP256(t *testing.T) {
 	if expected != actual {
 		t.Errorf("want %q got %q", expected, actual)
 	}
-
 }
