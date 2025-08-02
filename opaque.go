@@ -5,11 +5,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
-	"filippo.io/nistec"
-	"golang.org/x/crypto/hkdf"
 	"hash"
 	"io"
 	"math/big"
+
+	"filippo.io/nistec"
+	"golang.org/x/crypto/hkdf"
 )
 
 // https://eprint.iacr.org/2018/163.pdf
@@ -31,7 +32,7 @@ import (
 
 // profile: P256-SHA256, HKDF-SHA-256, HMAC-SHA-256, SHA-256, scrypt(S = zeroes(16), N = 32768, r = 8, p = 1, dkLen = 32), P-256
 
-func Stretch(b []byte) ([]byte, nil) {
+func Stretch(b []byte) ([]byte, error) {
 	// TODO: scrypt
 	// TODO: should take a context.Context, for cancellation
 	return b, nil
