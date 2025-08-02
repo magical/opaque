@@ -482,11 +482,11 @@ func hashToFieldP256(msg []byte, DST string) []byte {
 	e := new(big.Int).SetBytes(uniform_bytes) // big endian
 	// reduce scalar tv modulo the order of P-256
 	// TODO: constant time?
-	e.Mod(e, p256Order)
+	e.Mod(e, p256Prime)
 	return e.Bytes()
 }
 
-var p256Order *big.Int
+var p256Prime *big.Int
 
 func init() {
 	// p = 2^256 - 2^224 + 2^192 + 2^96 - 1
@@ -496,7 +496,7 @@ func init() {
 	z = z.Add(z, new(big.Int).Lsh(one, 192))
 	z = z.Sub(z, new(big.Int).Lsh(one, 224))
 	z = z.Add(z, new(big.Int).Lsh(one, 256))
-	p256Order = z
+	p256Prime = z
 }
 
 func expand_message_xmd(msg []byte, DST string, len_in_bytes int) []byte {
