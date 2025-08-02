@@ -8,6 +8,7 @@ import (
 	"hash"
 	"io"
 	"math/big"
+	"sync"
 
 	"filippo.io/nistec"
 	"golang.org/x/crypto/hkdf"
@@ -463,7 +464,7 @@ func deriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
 		//  contextString, and a prime modulus equal to Group.Order().
 		// Section 3.2.1:
 		//  DST="DeriveKeyPair" || contextString
-		sk := hashToFieldP256(deriveInput, "DeriveKeyPair"+contextString)
+		sk := hashToScalarP256(deriveInput, "DeriveKeyPairOPRFV1-\x00-P256-SHA256")
 		// note: can't fail
 		if sk != nil {
 			pk := nistec.NewP256Point()
@@ -475,20 +476,28 @@ func deriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
 	return nil, nil, DeriveKeyPairError
 }
 
-// https://www.rfc-editor.org/rfc/rfc9380.html#name-suites-for-nist-p-256
-func hashToFieldP256(msg []byte, DST string) []byte {
+func hashToScalarP256(msg []byte, DST string) []byte {
 	const L = 48 // (256 + 128) / 8
 	uniform_bytes := expand_message_xmd(msg, DST, L)
 	e := new(big.Int).SetBytes(uniform_bytes) // big endian
 	// reduce scalar tv modulo the order of P-256
 	// TODO: constant time?
-	e.Mod(e, p256Prime)
+	e.Mod(e, p256Order())
 	return e.Bytes()
 }
 
-var p256Prime *big.Int
+// https://www.rfc-editor.org/rfc/rfc9380.html#name-suites-for-nist-p-256
+func hashToFieldP256(msg []byte, DST string) []byte {
+	const L = 48 // (256 + 128) / 8
+	uniform_bytes := expand_message_xmd(msg, DST, L)
+	e := new(big.Int).SetBytes(uniform_bytes) // big endian
+	// reduce scalar tv modulo the order of the P-256's prime field
+	// TODO: constant time?
+	e.Mod(e, p256Prime())
+	return e.Bytes()
+}
 
-func init() {
+var p256Prime = sync.OnceValue(func() *big.Int {
 	// p = 2^256 - 2^224 + 2^192 + 2^96 - 1
 	z := big.NewInt(-1)
 	one := big.NewInt(1)
@@ -496,8 +505,8 @@ func init() {
 	z = z.Add(z, new(big.Int).Lsh(one, 192))
 	z = z.Sub(z, new(big.Int).Lsh(one, 224))
 	z = z.Add(z, new(big.Int).Lsh(one, 256))
-	p256Prime = z
-}
+	return z
+})
 
 func expand_message_xmd(msg []byte, DST string, len_in_bytes int) []byte {
 	var dstBytesWithLength = make([]byte, 0, len(DST)+1)
