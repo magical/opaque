@@ -1,0 +1,2 @@
+instead of ECDHE, use normal DH with a small prime (256 bits)
+eschew domain separation values
