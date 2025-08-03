@@ -1,10 +1,12 @@
 package opaque
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"hash"
 	"io"
 	"math/big"
@@ -44,7 +46,7 @@ var NewHash = sha256.New
 var applicationContext []byte
 
 type BlindSigner interface {
-	Blind(input []byte) (blind, blindedElement []byte)
+	Blind(input []byte) (blind, blindedElement []byte, _ error)
 	Finalize(input, blind, evaluated []byte) ([]byte, error)
 }
 
@@ -59,7 +61,7 @@ func DeriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
 	return deriveKeyPair(seed, info)
 }
 
-const Noe = 0  //size of serialized element
+const Noe = 33 //size of serialized element
 const Nok = 32 //size of OPRF private key
 
 type ClientState struct {
@@ -67,8 +69,8 @@ type ClientState struct {
 	password []byte
 	blind    []byte
 	// AKE state
-	clientSecret []byte
-	ke1          KE1
+	clientPrivKeyshare []byte
+	ke1                KE1
 }
 
 type KE1 struct {
@@ -107,7 +109,7 @@ func (s *ServerState) GenerateKE2(serverID, privKey, pubKey []byte, clientRegRec
 		return KE2{}, err
 	}
 	credentials := CreateCleartextCredentials(pubKey, clientRegRecord.pubKey, serverID, clientID)
-	authResponse, err := s.AuthServerRespond(credentials, pubKey, clientRegRecord.pubKey, ke1, response)
+	authResponse, err := s.AuthServerRespond(credentials, privKey, clientRegRecord.pubKey, ke1, response)
 	if err != nil {
 		return KE2{}, err
 	}
@@ -145,14 +147,43 @@ func SerializeElement(x []byte) []byte            { return x }
 func DeserializeElement(x []byte) ([]byte, error) { return x, nil }
 
 func CreateCredentialRequest(password []byte) (*CredentialRequest, []byte) {
-	var oprf BlindSigner
-	blind, blindElement := oprf.Blind(password)
+	var oprf BlindSigner = oprfP256
+	blind, blindElement, err := oprf.Blind(password)
+	if err != nil {
+		panic(err) // TODO
+	}
 	blindMessage := SerializeElement(blindElement)
 	return &CredentialRequest{blindMessage}, blind
 }
 
-func newRandomNonce() []byte     { b := make([]byte, Nn); rand.Read(b); return b }
-func newRandomSeed() [Nseed]byte { var b [Nseed]byte; rand.Read(b[:]); return b }
+var fixedNonceForTesting []byte
+var fixedNonceForTesting2 []byte
+
+func newRandomNonce() []byte {
+	if fixedNonceForTesting != nil {
+		return bytes.Clone(fixedNonceForTesting)
+	}
+	b := make([]byte, Nn)
+	rand.Read(b)
+	return b
+}
+func newRandomNonce2() []byte {
+	if fixedNonceForTesting2 != nil {
+		return bytes.Clone(fixedNonceForTesting2)
+	}
+	return newRandomNonce()
+}
+
+var fixedSeedForTesting []byte
+
+func newRandomSeed() [Nseed]byte {
+	var b [Nseed]byte
+	rand.Read(b[:])
+	if fixedSeedForTesting != nil {
+		copy(b[:], fixedSeedForTesting)
+	}
+	return b
+}
 
 func CreateCredentialResponse(request *CredentialRequest, pubKey []byte, clientRegRecord *ClientRegRecord, credID, oprfSeed []byte) (*CredentialResponse, error) {
 	var prfInfo = concats(credID, "OprfKey")
@@ -170,14 +201,14 @@ func CreateCredentialResponse(request *CredentialRequest, pubKey []byte, clientR
 	if err != nil {
 		return nil, err
 	}
-	var oprf BlindEvaluator // TODO
+	var oprf BlindEvaluator = oprfP256
 	evaluatedElement, err := oprf.BlindEvaluate(oprfKey, blindedElement)
 	if err != nil {
 		return nil, err
 	}
 	evaluatedMessage := SerializeElement(evaluatedElement)
 
-	maskingNonce := newRandomNonce()
+	maskingNonce := newRandomNonce2()
 
 	var maskingInfo = concats(maskingNonce, "CredentialResponsePad")
 	r = hkdf.Expand(NewHash, clientRegRecord.maskingKey, maskingInfo)
@@ -198,8 +229,8 @@ func CreateCredentialResponse(request *CredentialRequest, pubKey []byte, clientR
 }
 
 const (
-	Npk = 0
-	Nn  = 0
+	Npk = 33
+	Nn  = Nseed
 	Nm  = sha256.Size
 )
 
@@ -214,7 +245,7 @@ func RecoverCredentials(password []byte, blind []byte, response *CredentialRespo
 		return nil, nil, nil, err
 	}
 	kdfInfo := append(oprfOutput, stretchedOutput...)
-	randomizedPassword := hkdf.Extract(NewHash, nil, kdfInfo)
+	randomizedPassword := hkdf.Extract(NewHash, kdfInfo, nil)
 
 	r := hkdf.Expand(NewHash, randomizedPassword, []byte("MaskingKey"))
 	var maskingKey = make([]byte, Nh)
@@ -252,7 +283,7 @@ func concats(a []byte, b string) []byte {
 
 var EnvelopeRecoveryError = errors.New("opaque: failed to recover envelope")
 
-const Nh = 0
+const Nh = sha256.Size
 const Nseed = 32
 
 func Recover(randomizedPassword, pubKey, envelope, serverID, clientID []byte) (privKey []byte, credentials *CleartextCredentials, exportKey []byte, err error) {
@@ -323,16 +354,21 @@ func (c *ClientState) AuthClientStart(request *CredentialRequest) (KE1, error) {
 	nonce := newRandomNonce()
 	seed := newRandomSeed()
 	// DeriveDiffieHellmanKeyPair
-	clientSecret, clientPubKeyshare, err := DeriveKeyPair(seed, "OPAQUE-DeriveDiffieHellmanKeyPair")
+	clientPrivKeyshare, clientPubKeyshare, err := DeriveKeyPair(seed, "OPAQUE-DeriveDiffieHellmanKeyPair")
 	if err != nil {
 		return KE1{}, err
 	}
-	c.clientSecret = clientSecret
+	c.clientPrivKeyshare = clientPrivKeyshare
 	c.ke1 = KE1{request, AuthRequest{nonce, clientPubKeyshare}}
 	return c.ke1, nil
 }
 
 func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []byte, clientPubKey []byte, ke1 KE1, credResponse *CredentialResponse) (*AuthResponse, error) {
+	//fmt.Printf("creds: %#v\n", creds)
+	//fmt.Printf("privkey: %x\n", privKey)
+	//fmt.Printf("clientPubKey: %x\n", clientPubKey)
+	//fmt.Printf("ke1: %#v\n", &ke1)
+	//fmt.Printf("credResponse: %#v\n", credResponse)
 	serverNonce := newRandomNonce()
 	seed := newRandomSeed()
 	// DeriveDiffieHellmanKeyPair
@@ -340,6 +376,8 @@ func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []b
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("server priv keyshare: %x\n", serverPrivKeyshare)
+	fmt.Printf("server pub keyshare:  %x\n", serverPubKeyshare)
 	ke2 := KE2{credResponse, AuthResponse{serverNonce, serverPubKeyshare, nil}}
 	ph := hashPreamble(creds.clientID, ke1, creds.serverID, ke2)
 	preambleHash := ph.Sum(nil)
@@ -352,6 +390,8 @@ func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []b
 	ikm = append(ikm, dh2...)
 	ikm = append(ikm, dh3...)
 	km2, km3, sessionKey := DeriveKeys(ikm, preambleHash)
+	fmt.Printf("km2 %x\n", km2)
+	fmt.Printf("km3 %x\n", km3)
 	hm := hmac.New(NewHash, km2)
 	hm.Write(preambleHash)
 	serverMAC := hm.Sum(nil)
@@ -366,8 +406,8 @@ func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []b
 var ServerAuthenticationError = errors.New("opaque: server authentication error")
 
 func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []byte, ke2 KE2) (_ KE3, sessionKey []byte, err error) {
-	dh1 := DiffieHellman(c.clientSecret, ke2.authResponse.serverPubKeyshare)
-	dh2 := DiffieHellman(c.clientSecret, creds.serverPubKey)
+	dh1 := DiffieHellman(c.clientPrivKeyshare, ke2.authResponse.serverPubKeyshare)
+	dh2 := DiffieHellman(c.clientPrivKeyshare, creds.serverPubKey)
 	dh3 := DiffieHellman(privKey, ke2.authResponse.serverPubKeyshare)
 	var ikm []byte
 	ikm = append(ikm, dh1...)
@@ -391,6 +431,7 @@ func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []
 }
 
 func hashPreamble(clientID []byte, ke1 KE1, serverID []byte, ke2 KE2) hash.Hash {
+	dumpPreamble(clientID, ke1, serverID, ke2)
 	h := NewHash()
 	h.Write([]byte("OPAQUEv1-"))
 	h.Write([]byte{byte(len(applicationContext) >> 8), byte(len(applicationContext))})
@@ -398,6 +439,8 @@ func hashPreamble(clientID []byte, ke1 KE1, serverID []byte, ke2 KE2) hash.Hash 
 	h.Write([]byte{byte(len(clientID) >> 8), byte(len(clientID))})
 	h.Write(clientID)
 	h.Write(ke1.credentialRequest.blindedMessage)
+	h.Write(ke1.authRequest.clientNonce)
+	h.Write(ke1.authRequest.clientPubKeyshare)
 	h.Write([]byte{byte(len(serverID) >> 8), byte(len(serverID))})
 	h.Write(serverID)
 	h.Write(ke2.credentialResponse.evaluatedMessage)
@@ -408,12 +451,50 @@ func hashPreamble(clientID []byte, ke1 KE1, serverID []byte, ke2 KE2) hash.Hash 
 	return h
 }
 
+func dumpPreamble(clientID []byte, ke1 KE1, serverID []byte, ke2 KE2) {
+	w := func(b []byte) {
+		if printable(b) {
+			fmt.Printf("preamble | %q = % [1]x\n", b)
+		} else {
+			fmt.Printf("preamble | % x\n", b)
+		}
+	}
+	w([]byte("OPAQUEv1-"))
+	w([]byte{byte(len(applicationContext) >> 8), byte(len(applicationContext))})
+	w(applicationContext)
+	w([]byte{byte(len(clientID) >> 8), byte(len(clientID))})
+	w(clientID)
+	w(ke1.credentialRequest.blindedMessage)
+	w(ke1.authRequest.clientNonce)
+	w(ke1.authRequest.clientPubKeyshare)
+	w([]byte{byte(len(serverID) >> 8), byte(len(serverID))})
+	w(serverID)
+	w(ke2.credentialResponse.evaluatedMessage)
+	w(ke2.credentialResponse.maskingNonce)
+	w(ke2.credentialResponse.maskedResponse)
+	w(ke2.authResponse.serverNonce)
+	w(ke2.authResponse.serverPubKeyshare)
+}
+
+func printable(b []byte) bool {
+	for _, c := range b {
+		if !(0x20 <= c && c <= 0x7E) {
+			return false
+		}
+	}
+	return true
+}
+
 func DiffieHellman(privKey, pubKey []byte) []byte {
-	p, err := nistec.NewP256Point().SetBytes(pubKey)
-	if err != nil {
+	fmt.Printf("Diffie hellman:\npriv %x\npub  %x\n", privKey, pubKey)
+	p := nistec.NewP256Point()
+	if _, err := p.SetBytes(pubKey); err != nil {
 		panic(err)
 	}
-	p.ScalarMult(p, pubKey)
+	if _, err := p.ScalarMult(p, privKey); err != nil {
+		panic(err)
+	}
+	fmt.Printf("out  %x\n", p.BytesCompressed())
 	return p.BytesCompressed()
 }
 
@@ -421,18 +502,31 @@ func DeriveKeys(ikm, preambleHash []byte) (km2, km3, sessionKey []byte) {
 	prk := hkdf.Extract(NewHash, ikm, nil)
 	handshakeSecret := DeriveSecret(prk, "HandshakeSecret", preambleHash)
 	sessionKey = DeriveSecret(prk, "SessionKey", preambleHash)
+	fmt.Printf("preamble hash:\n%x\n", preambleHash)
+	fmt.Printf("handshake secret: %x\n", handshakeSecret)
+	fmt.Printf("session key: %x\n", sessionKey)
 	km2 = DeriveSecret(handshakeSecret, "ServerMAC", nil)
 	km3 = DeriveSecret(handshakeSecret, "ClientMAC", nil)
 	return km2, km3, sessionKey
 }
 
-func DeriveSecret(secret []byte, label string, transcriptHash []byte) []byte {
-	h := hmac.New(NewHash, secret)
-	Nx := h.Size()
-	h.Write([]byte{byte(Nx >> 8), byte(Nx)})
-	h.Write([]byte("OPAQUE-" + label))
-	h.Write(transcriptHash)
-	return h.Sum(nil)
+const Nx = sha256.Size
+
+func DeriveSecret(baseSecret []byte, label string, transcriptHash []byte) []byte {
+	// TODO: check label and transcriptHash length
+	var info []byte
+	info = append(info, byte(Nx>>8), byte(Nx))
+	info = append(info, byte(len("OPAQUE-")+len(label)))
+	info = append(info, "OPAQUE-"...)
+	info = append(info, label...)
+	info = append(info, byte(len(transcriptHash)))
+	info = append(info, transcriptHash...)
+	r := hkdf.Expand(NewHash, baseSecret, info)
+	var derivedSecret = make([]byte, Nx)
+	if _, err := io.ReadFull(r, derivedSecret); err != nil {
+		panic("internal error: hkdf failed")
+	}
+	return derivedSecret
 }
 
 // Deterministic key generation from RFC9497
@@ -443,7 +537,7 @@ func DeriveSecret(secret []byte, label string, transcriptHash []byte) []byte {
 
 var DeriveKeyPairError = errors.New("failed to derive key pair")
 
-const contextString = "OPRFV1-\x00-OPAQUE-POC"
+//const contextString = "OPRFV1-\x00-OPAQUE-POC"
 
 func deriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
 	l := len(info)

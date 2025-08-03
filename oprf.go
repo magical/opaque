@@ -1,6 +1,7 @@
 package opaque
 
 import (
+	"bytes"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -14,11 +15,11 @@ var oprfContextString = "OPRFV1-\x00-"
 
 // TODO: Applications MUST check that input Element values received over the wire are not the group identity element. This check is handled after deserializing Element values; see Section 4 for more information and requirements on input validation for each ciphersuite.
 
-var randomScalarForTesting []byte
+var fixedScalarForTesting []byte
 
 func randomScalar() []byte {
-	if randomScalarForTesting != nil {
-		return randomScalarForTesting
+	if fixedScalarForTesting != nil {
+		return bytes.Clone(fixedScalarForTesting)
 	}
 	//  4.7.2. Random Number Generation Using Extra Random Bits
 	// Generate a random byte array with L = ceil(((3 * ceil(log2(G.Order()))) / 2) / 8) bytes, and interpret it as an integer; reduce the integer modulo G.Order(), and return the result. See [RFC9380], Section 5 for the underlying derivation of L.
@@ -127,4 +128,26 @@ func HashToGroupP256(msg []byte) *nistec.P256Point {
 		panic(err)
 	}
 	return p
+}
+
+type oprfFuncs struct {
+	blind    func(input []byte) (blind, blindedElement []byte, _ error)
+	finalize func(input, blind, evaluated []byte) ([]byte, error)
+	evaluate func(sk, blindedElement []byte) (evaluatedElement []byte, err error)
+}
+
+var oprfP256 = &oprfFuncs{
+	blind:    BlindP256,
+	finalize: BlindFinalizeP256,
+	evaluate: BlindEvaluateP256,
+}
+
+func (v *oprfFuncs) Blind(input []byte) (blind, blindedElement []byte, _ error) {
+	return v.blind(input)
+}
+func (v *oprfFuncs) Finalize(input, blind, evaluated []byte) ([]byte, error) {
+	return v.finalize(input, blind, evaluated)
+}
+func (v *oprfFuncs) BlindEvaluate(sk, blindedElement []byte) (evaluatedElement []byte, err error) {
+	return v.evaluate(sk, blindedElement)
 }

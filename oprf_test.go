@@ -21,7 +21,8 @@ func TestOPRF(t *testing.T) {
 	sk, err := hex.DecodeString("159749d750713afe245d2d39ccfaae8381c53ce92d098a9375ee70739c7ac0bf")
 	abhor(t, err)
 
-	randomScalarForTesting = expectedBlind
+	fixedScalarForTesting = expectedBlind
+	defer func() { fixedScalarForTesting = nil }()
 	msg := []byte{0}
 	blind, belem, err := BlindP256(msg)
 	abhor(t, err)
