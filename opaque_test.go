@@ -61,13 +61,22 @@ func TestOpaque(t *testing.T) {
 	fmt.Printf("% x\n", ke1.credentialRequest.blindedMessage)
 	fmt.Printf("% x\n", ke1.authRequest.clientNonce)
 	fmt.Printf("% x\n", ke1.authRequest.clientPubKeyshare)
-	ok := checkBytes(t, "client priv keyshare", c.clientPrivKeyshare,
-		"2d3f3aafdcb640eec91754b63837163ef88b0cf42119e2bf5a8922a2ff72c818")
-	ok2 := checkBytes(t, "pub keyshare", ke1.authRequest.clientPubKeyshare,
-		"022ed3f32f318f81bab80da321fecab3cd9b6eea11a95666dfa6beeaab321280b6")
-	if !ok || !ok2 {
+	if !all(
+		checkBytes(t, "blind", c.blind,
+			"c497fddf6056d241e6cf9fb7ac37c384f49b357a221eb0a802c989b9942256c1"),
+		checkBytes(t, "KE1/client priv keyshare", c.clientPrivKeyshare,
+			"2d3f3aafdcb640eec91754b63837163ef88b0cf42119e2bf5a8922a2ff72c818"),
+		checkBytes(t, "KE1/blindedMessage", ke1.credentialRequest.blindedMessage,
+			"037342f0bcb3ecea754c1e67576c86aa90c1de3875f390ad599a26686cdfee6e07"),
+		checkBytes(t, "KE1/client nonce", ke1.authRequest.clientNonce,
+			"ab3d33bde0e93eda72392346a7a73051110674bbf6b1b7ffab8be4f91fdaeeb1"),
+		checkBytes(t, "KE1/client pub keyshare", ke1.authRequest.clientPubKeyshare,
+			"022ed3f32f318f81bab80da321fecab3cd9b6eea11a95666dfa6beeaab321280b6"),
+	) {
 		return
 	}
+
+	// ---- KE2 ----
 
 	applicationContext = []byte("OPAQUE-POC")
 
@@ -123,7 +132,45 @@ func TestOpaque(t *testing.T) {
 	fmt.Printf("% x\n", ke2.authResponse.serverNonce)       // ok
 	fmt.Printf("% x\n", ke2.authResponse.serverPubKeyshare) // ok
 	fmt.Printf("% x\n", ke2.authResponse.serverMAC)
-	t.Error(".")
+
+	if !all(
+		checkBytes(t, "KE2/evaluated message", ke2.credentialResponse.evaluatedMessage,
+			"0246da9fe4d41d5ba69faa6c509a1d5bafd49a48615a47a8dd4b0823cc14764811"),
+		checkBytes(t, "KE2/masking nonce", ke2.credentialResponse.maskingNonce,
+			"38fe59af0df2c79f57b8780278f5ae47355fe1f817119041951c80f612fdfc6d"),
+		checkBytes(t, "KE2/masked response", ke2.credentialResponse.maskedResponse,
+			"2f0c547f70deaeca54d878c14c1aa5e1ab405dec833777132eea905c2fbb12504a"+
+				"67dcbe0e66740c76b62c13b04a38a77926e19072953319ec65e41f9bfd2ae268"+
+				"37b6ce688bf9af2542f04eec9ab96a1b9328812dc2f5c89182ed47fead61f09f"),
+		checkBytes(t, "KE2/server nonce", ke2.authResponse.serverNonce,
+			"71cd9960ecef2fe0d0f7494986fa3d8b2bb01963537e60efb13981e138e3d4a1"),
+		checkBytes(t, "KE2/server pub keyshare", ke2.authResponse.serverPubKeyshare,
+			"03c1701353219b53acf337bf6456a83cefed8f563f1040b65afbf3b65d3bc9a19b"),
+		checkBytes(t, "KE2/server mac", ke2.authResponse.serverMAC,
+			"50a73b145bc87a157e8c58c0342e2047ee22ae37b63db17e0a82a30fcc4ecf7b"),
+		checkBytes(t, "KE2/expected client mac", s.expectedClientMAC,
+			"e97cab4433aa39d598e76f13e768bba61c682947bdcf9936035e8a3a3ebfb66e"),
+	) {
+		return
+	}
+}
+
+func all(xs ...bool) bool {
+	for _, x := range xs {
+		if x == false {
+			return x
+		}
+	}
+	return true
+}
+
+func any(xs ...bool) bool {
+	for _, x := range xs {
+		if x == true {
+			return x
+		}
+	}
+	return false
 }
 
 func checkBytes(t *testing.T, name string, actual []byte, expected string) bool {
@@ -134,3 +181,8 @@ func checkBytes(t *testing.T, name string, actual []byte, expected string) bool 
 	}
 	return true
 }
+
+// TODO: test DeriveSecret
+// TODO: test preamble hash
+// TODO: test DiffieHellman
+// TODO: test handshakeSecret

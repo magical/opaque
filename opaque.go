@@ -376,8 +376,8 @@ func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []b
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("server priv keyshare: %x\n", serverPrivKeyshare)
-	fmt.Printf("server pub keyshare:  %x\n", serverPubKeyshare)
+	//fmt.Printf("server priv keyshare: %x\n", serverPrivKeyshare)
+	//fmt.Printf("server pub keyshare:  %x\n", serverPubKeyshare)
 	ke2 := KE2{credResponse, AuthResponse{serverNonce, serverPubKeyshare, nil}}
 	ph := hashPreamble(creds.clientID, ke1, creds.serverID, ke2)
 	preambleHash := ph.Sum(nil)
@@ -390,8 +390,8 @@ func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []b
 	ikm = append(ikm, dh2...)
 	ikm = append(ikm, dh3...)
 	km2, km3, sessionKey := DeriveKeys(ikm, preambleHash)
-	fmt.Printf("km2 %x\n", km2)
-	fmt.Printf("km3 %x\n", km3)
+	//fmt.Printf("km2 %x\n", km2)
+	//fmt.Printf("km3 %x\n", km3)
 	hm := hmac.New(NewHash, km2)
 	hm.Write(preambleHash)
 	serverMAC := hm.Sum(nil)
@@ -431,7 +431,7 @@ func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []
 }
 
 func hashPreamble(clientID []byte, ke1 KE1, serverID []byte, ke2 KE2) hash.Hash {
-	dumpPreamble(clientID, ke1, serverID, ke2)
+	//dumpPreamble(clientID, ke1, serverID, ke2)
 	h := NewHash()
 	h.Write([]byte("OPAQUEv1-"))
 	h.Write([]byte{byte(len(applicationContext) >> 8), byte(len(applicationContext))})
@@ -486,7 +486,7 @@ func printable(b []byte) bool {
 }
 
 func DiffieHellman(privKey, pubKey []byte) []byte {
-	fmt.Printf("Diffie hellman:\npriv %x\npub  %x\n", privKey, pubKey)
+	//fmt.Printf("Diffie hellman:\npriv %x\npub  %x\n", privKey, pubKey)
 	p := nistec.NewP256Point()
 	if _, err := p.SetBytes(pubKey); err != nil {
 		panic(err)
@@ -494,7 +494,7 @@ func DiffieHellman(privKey, pubKey []byte) []byte {
 	if _, err := p.ScalarMult(p, privKey); err != nil {
 		panic(err)
 	}
-	fmt.Printf("out  %x\n", p.BytesCompressed())
+	//fmt.Printf("out  %x\n", p.BytesCompressed())
 	return p.BytesCompressed()
 }
 
