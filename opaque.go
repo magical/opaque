@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
-	"fmt"
 	"hash"
 	"io"
 	"math/big"
@@ -454,6 +453,7 @@ func hashPreamble(clientID []byte, ke1 KE1, serverID []byte, ke2 KE2) hash.Hash 
 	return h
 }
 
+/*
 func dumpPreamble(clientID []byte, ke1 KE1, serverID []byte, ke2 KE2) {
 	w := func(b []byte) {
 		if printable(b) {
@@ -478,6 +478,7 @@ func dumpPreamble(clientID []byte, ke1 KE1, serverID []byte, ke2 KE2) {
 	w(ke2.authResponse.serverNonce)
 	w(ke2.authResponse.serverPubKeyshare)
 }
+*/
 
 func printable(b []byte) bool {
 	for _, c := range b {
@@ -505,9 +506,9 @@ func DeriveKeys(ikm, preambleHash []byte) (km2, km3, sessionKey []byte) {
 	prk := hkdf.Extract(NewHash, ikm, nil)
 	handshakeSecret := DeriveSecret(prk, "HandshakeSecret", preambleHash)
 	sessionKey = DeriveSecret(prk, "SessionKey", preambleHash)
-	fmt.Printf("preamble hash:\n%x\n", preambleHash)
-	fmt.Printf("handshake secret: %x\n", handshakeSecret)
-	fmt.Printf("session key: %x\n", sessionKey)
+	//fmt.Printf("preamble hash: %x\n", preambleHash)
+	//fmt.Printf("handshake secret: %x\n", handshakeSecret)
+	//fmt.Printf("session key: %x\n", sessionKey)
 	km2 = DeriveSecret(handshakeSecret, "ServerMAC", nil)
 	km3 = DeriveSecret(handshakeSecret, "ClientMAC", nil)
 	return km2, km3, sessionKey

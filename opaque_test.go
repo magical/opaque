@@ -56,11 +56,6 @@ func TestOpaque(t *testing.T) {
 	var c ClientState
 	ke1, err := c.GenerateKE1(password)
 	abhor(t, err)
-	fmt.Printf("% x\n", c.blind)
-	fmt.Printf("% x\n", c.clientPrivKeyshare)
-	fmt.Printf("% x\n", ke1.credentialRequest.blindedMessage)
-	fmt.Printf("% x\n", ke1.authRequest.clientNonce)
-	fmt.Printf("% x\n", ke1.authRequest.clientPubKeyshare)
 	if !all(
 		checkBytes(t, "blind", c.blind,
 			"c497fddf6056d241e6cf9fb7ac37c384f49b357a221eb0a802c989b9942256c1"),
@@ -123,15 +118,6 @@ func TestOpaque(t *testing.T) {
 	var s ServerState
 	ke2, err := s.GenerateKE2(serverID, serverPrivKey, serverPubKey, clientRegRecord, credID, oprfSeed, ke1, clientID)
 	abhor(t, err)
-	fmt.Println("KE2")
-	fmt.Printf("% x\n", ke2.credentialResponse.evaluatedMessage) // ok
-	fmt.Printf("% x\n", ke2.credentialResponse.maskingNonce)     // ok
-	fmt.Printf("|% x|\n", ke2.credentialResponse.maskedResponse)
-	// pubkey ok
-	// envelope ok
-	fmt.Printf("% x\n", ke2.authResponse.serverNonce)       // ok
-	fmt.Printf("% x\n", ke2.authResponse.serverPubKeyshare) // ok
-	fmt.Printf("% x\n", ke2.authResponse.serverMAC)
 
 	if !all(
 		checkBytes(t, "KE2/evaluated message", ke2.credentialResponse.evaluatedMessage,
