@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"hash"
 	"io"
@@ -218,9 +219,7 @@ func CreateCredentialResponse(request *CredentialRequest, pubKey []byte, clientR
 	var maskedResponse []byte
 	maskedResponse = append(maskedResponse, pubKey...) // server public key
 	maskedResponse = append(maskedResponse, clientRegRecord.envelope...)
-	for i, x := range xorpad {
-		maskedResponse[i] ^= x
-	}
+	subtle.XORBytes(maskedResponse, maskedResponse, xorpad)
 
 	return &CredentialResponse{
 		evaluatedMessage, maskingNonce, maskedResponse,
@@ -259,9 +258,7 @@ func RecoverCredentials(password []byte, blind []byte, response *CredentialRespo
 		panic("hkdf failure")
 	}
 	var unmaskedResponse = make([]byte, len(response.maskedResponse))
-	for i, x := range xorpad {
-		unmaskedResponse[i] = response.maskedResponse[i] ^ x
-	}
+	subtle.XORBytes(unmaskedResponse, response.maskedResponse, xorpad)
 
 	pubKey := unmaskedResponse[:Npk:Npk]
 	envelope := unmaskedResponse[Npk:]
