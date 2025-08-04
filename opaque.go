@@ -573,14 +573,7 @@ func deriveKeyPair(seed [Nseed]byte, info string) (sk, pk []byte, err error) {
 	deriveInput = append(deriveInput, 0) // counter
 	for counter := range 256 {
 		deriveInput[len(deriveInput)-1] = uint8(counter)
-		// RFC9497
-		// Section 4.3:
-		//  Use hash_to_field from [RFC9380] using L = 48,
-		//  expand_message_xmd with SHA-256, DST = "HashToScalar-" ||
-		//  contextString, and a prime modulus equal to Group.Order().
-		// Section 3.2.1:
-		//  DST="DeriveKeyPair" || contextString
-		sk := hashToScalarP256(deriveInput, "DeriveKeyPairOPRFV1-\x00-P256-SHA256")
+		sk := hashToScalarP256(deriveInput, "DeriveKeyPair"+oprfContextString+oprfSuite)
 		// note: can't fail
 		if sk != nil {
 			pk := nistec.NewP256Point()
