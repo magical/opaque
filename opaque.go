@@ -223,6 +223,7 @@ func newRandomSeed() [Nseed]byte {
 }
 
 func CreateCredentialResponse(request *CredentialRequest, pubKey []byte, clientRegRecord *ClientRegRecord, credID, oprfSeed []byte) (*CredentialResponse, error) {
+	// FIXME The spec says this is Nok but it seems like it should be Nseed?
 	var seed = (*[Nok]byte)(hkdfExpand(NewHash, oprfSeed, concats(credID, "OprfKey"), Nok))
 
 	oprfKey, _, err := DeriveKeyPair(*seed, "OPAQUE-DeriveKeyPair")
