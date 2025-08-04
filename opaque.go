@@ -598,7 +598,7 @@ func hashToScalarP256(msg []byte, DST string) []byte {
 	// reduce scalar tv modulo the order of P-256
 	// TODO: constant time?
 	e.Mod(e, p256Order())
-	return e.Bytes()
+	return e.FillBytes(make([]byte, 32))
 }
 
 // https://www.rfc-editor.org/rfc/rfc9380.html#name-suites-for-nist-p-256
@@ -609,7 +609,7 @@ func hashToFieldP256(msg []byte, DST string) []byte {
 	// reduce scalar tv modulo the order of the P-256's prime field
 	// TODO: constant time?
 	e.Mod(e, p256Prime())
-	return e.Bytes()
+	return e.FillBytes(make([]byte, 32))
 }
 
 var p256Prime = sync.OnceValue(func() *big.Int {

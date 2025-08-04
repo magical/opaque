@@ -32,14 +32,7 @@ func randomScalar() []byte {
 	e := new(big.Int).SetBytes(buf) // big endian
 	// TODO: constant time?
 	e.Mod(e, p256Order())
-	scalar := e.Bytes()
-	// left pad with zeros, if necessary
-	if len(scalar) < Nok {
-		padded := make([]byte, Nok)
-		copy(padded[Nok-len(scalar):Nok], scalar[:])
-		return padded
-	}
-	return scalar
+	return e.FillBytes(make([]byte, 32))
 }
 
 var p256Order = sync.OnceValue(func() *big.Int {
