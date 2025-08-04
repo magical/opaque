@@ -447,6 +447,7 @@ func hashPreamble(clientID []byte, ke1 *KE1, serverID []byte, ke2 *KE2) hash.Has
 	h.Write(ke2.credentialResponse.maskedResponse)
 	h.Write(ke2.authResponse.serverNonce)
 	h.Write(ke2.authResponse.serverPubKeyshare)
+	//note: not ke2.authResponse.serverMAC
 	return h
 }
 
