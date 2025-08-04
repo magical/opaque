@@ -476,7 +476,6 @@ func dumpPreamble(clientID []byte, ke1 *KE1, serverID []byte, ke2 *KE2) {
 	w(ke2.authResponse.serverNonce)
 	w(ke2.authResponse.serverPubKeyshare)
 }
-*/
 
 func printable(b []byte) bool {
 	for _, c := range b {
@@ -486,6 +485,7 @@ func printable(b []byte) bool {
 	}
 	return true
 }
+*/
 
 func DiffieHellman(privKey, pubKey []byte) []byte {
 	//fmt.Printf("Diffie hellman:\npriv %x\npub  %x\n", privKey, pubKey)
