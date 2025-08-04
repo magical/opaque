@@ -166,17 +166,13 @@ type CredentialRequest struct{ blindedMessage []byte }
 type CredentialResponse struct{ evaluatedMessage, maskingNonce, maskedResponse []byte }
 type CleartextCredentials struct{ serverPubKey, serverID, clientID []byte }
 
-func SerializeElement(x []byte) []byte            { return x }
-func DeserializeElement(x []byte) ([]byte, error) { return x, nil }
-
 func CreateCredentialRequest(password []byte) (*CredentialRequest, []byte) {
 	var oprf BlindSigner = oprfP256
 	blind, blindElement, err := oprf.Blind(password)
 	if err != nil {
 		panic(err) // TODO
 	}
-	blindMessage := SerializeElement(blindElement)
-	return &CredentialRequest{blindMessage}, blind
+	return &CredentialRequest{blindElement}, blind
 }
 
 var fixedNonceForTesting []byte
@@ -215,17 +211,11 @@ func CreateCredentialResponse(request *CredentialRequest, pubKey []byte, clientR
 	if err != nil {
 		return nil, err
 	}
-	blindedElement, err := DeserializeElement(request.blindedMessage)
-	if err != nil {
-		return nil, err
-	}
 	var oprf BlindEvaluator = oprfP256
-	evaluatedElement, err := oprf.BlindEvaluate(oprfKey, blindedElement)
+	evaluatedElement, err := oprf.BlindEvaluate(oprfKey, request.blindedMessage)
 	if err != nil {
 		return nil, err
 	}
-	evaluatedMessage := SerializeElement(evaluatedElement)
-
 	maskingNonce := newRandomNonce2()
 
 	var xorpad = hkdfExpand(NewHash, clientRegRecord.maskingKey, concats(maskingNonce, "CredentialResponsePad"), Npk+Nn+Nm)
@@ -235,7 +225,7 @@ func CreateCredentialResponse(request *CredentialRequest, pubKey []byte, clientR
 	subtle.XORBytes(maskedResponse, maskedResponse, xorpad)
 
 	return &CredentialResponse{
-		evaluatedMessage, maskingNonce, maskedResponse,
+		evaluatedElement, maskingNonce, maskedResponse,
 	}, nil
 }
 
@@ -549,7 +539,7 @@ func deriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
 		if sk != nil {
 			pk := nistec.NewP256Point()
 			if _, err := pk.ScalarBaseMult(sk); err == nil {
-				return sk, SerializeElement(pk.BytesCompressed()), nil
+				return sk, pk.BytesCompressed(), nil
 			}
 		}
 	}
