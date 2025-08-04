@@ -10,6 +10,7 @@ import (
 	"hash"
 	"io"
 	"math/big"
+	"strings"
 	"sync"
 
 	"filippo.io/nistec"
@@ -59,6 +60,15 @@ type BlindEvaluator interface {
 // and an (optional) info string.
 func DeriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
 	return deriveKeyPair(seed, info)
+}
+
+func hkdfExpand(h func() hash.Hash, secret []byte, info string, size int) []byte {
+	out := make([]byte, size)
+	r := hkdf.Expand(h, secret, []byte(info))
+	if _, err := io.ReadFull(r, out); err != nil {
+		panic("hkdf failure") // shouldn't happen
+	}
+	return out
 }
 
 const Noe = 33 //size of serialized element
@@ -186,14 +196,9 @@ func newRandomSeed() [Nseed]byte {
 }
 
 func CreateCredentialResponse(request *CredentialRequest, pubKey []byte, clientRegRecord *ClientRegRecord, credID, oprfSeed []byte) (*CredentialResponse, error) {
-	var prfInfo = concats(credID, "OprfKey")
-	r := hkdf.Expand(NewHash, oprfSeed, prfInfo)
-	var seed [Nok]byte
-	if _, err := io.ReadFull(r, seed[:]); err != nil {
-		panic("hkdf failure")
-	}
+	var seed = (*[Nok]byte)(hkdfExpand(NewHash, oprfSeed, concats(credID, "OprfKey"), Nok))
 
-	oprfKey, _, err := DeriveKeyPair(seed, "OPAQUE-DeriveKeyPair")
+	oprfKey, _, err := DeriveKeyPair(*seed, "OPAQUE-DeriveKeyPair")
 	if err != nil {
 		return nil, err
 	}
@@ -210,12 +215,7 @@ func CreateCredentialResponse(request *CredentialRequest, pubKey []byte, clientR
 
 	maskingNonce := newRandomNonce2()
 
-	var maskingInfo = concats(maskingNonce, "CredentialResponsePad")
-	r = hkdf.Expand(NewHash, clientRegRecord.maskingKey, maskingInfo)
-	var xorpad = make([]byte, Npk+Nn+Nm)
-	if _, err := io.ReadFull(r, xorpad); err != nil {
-		panic("hkdf failure")
-	}
+	var xorpad = hkdfExpand(NewHash, clientRegRecord.maskingKey, concats(maskingNonce, "CredentialResponsePad"), Npk+Nn+Nm)
 	var maskedResponse []byte
 	maskedResponse = append(maskedResponse, pubKey...) // server public key
 	maskedResponse = append(maskedResponse, clientRegRecord.envelope...)
@@ -244,19 +244,8 @@ func RecoverCredentials(password []byte, blind []byte, response *CredentialRespo
 	}
 	kdfInfo := append(oprfOutput, stretchedOutput...)
 	randomizedPassword := hkdf.Extract(NewHash, kdfInfo, nil)
-
-	r := hkdf.Expand(NewHash, randomizedPassword, []byte("MaskingKey"))
-	var maskingKey = make([]byte, Nh)
-	if _, err := io.ReadFull(r, maskingKey); err != nil {
-		panic("hkdf error")
-	}
-
-	var maskingInfo = concats(response.maskingNonce, "CredentialResponsePad")
-	r = hkdf.Expand(NewHash, maskingKey, maskingInfo)
-	var xorpad = make([]byte, Npk+Nn+Nm)
-	if _, err := io.ReadFull(r, xorpad); err != nil {
-		panic("hkdf failure")
-	}
+	maskingKey := hkdfExpand(NewHash, randomizedPassword, "MaskingKey", Nh)
+	xorpad := hkdfExpand(NewHash, maskingKey, concats(response.maskingNonce, "CredentialResponsePad"), Npk+Nn+Nm)
 	var unmaskedResponse = make([]byte, len(response.maskedResponse))
 	subtle.XORBytes(unmaskedResponse, response.maskedResponse, xorpad)
 
@@ -270,11 +259,11 @@ func RecoverCredentials(password []byte, blind []byte, response *CredentialRespo
 	return clientKey, credentials, exportKey, nil
 }
 
-func concats(a []byte, b string) []byte {
+func concats(a []byte, b string) string {
 	var out []byte
 	out = append(out, a...)
 	out = append(out, b...)
-	return out
+	return string(out)
 }
 
 var EnvelopeRecoveryError = errors.New("opaque: failed to recover envelope")
@@ -285,26 +274,15 @@ const Nseed = 32
 var ignoreAuthErrorsForTesting = false
 
 func Recover(randomizedPassword, pubKey, envelope, serverID, clientID []byte) (privKey []byte, credentials *CleartextCredentials, exportKey []byte, err error) {
-	var authKey = make([]byte, Nh)
-	exportKey = make([]byte, Nh)
-	var seed [Nseed]byte
 	envelopeNonce := envelope[0:Nn]
 	envelopeAuthTag := envelope[Nn : Nn+Nm]
-	r := hkdf.Expand(NewHash, randomizedPassword, concats(envelopeNonce, "AuthKey"))
-	if _, err := io.ReadFull(r, authKey); err != nil {
-		panic("hkdf failure: authKey")
-	}
-	r = hkdf.Expand(NewHash, randomizedPassword, concats(envelopeNonce, "ExportKey"))
-	if _, err := io.ReadFull(r, exportKey); err != nil {
-		panic("hkdf failure: exportKey")
-	}
-	r = hkdf.Expand(NewHash, randomizedPassword, concats(envelopeNonce, "PrivateKey"))
-	if _, err := io.ReadFull(r, seed[:]); err != nil {
-		panic("hkdf failure: privateKey")
-	}
+
+	authKey := hkdfExpand(NewHash, randomizedPassword, concats(envelopeNonce, "AuthKey"), Nh)
+	exportKey = hkdfExpand(NewHash, randomizedPassword, concats(envelopeNonce, "ExportKey"), Nh)
+	seed := (*[Nseed]byte)(hkdfExpand(NewHash, randomizedPassword, concats(envelopeNonce, "PrivateKey"), Nseed))
 
 	//clientPrivKey, clientPubKey := DeriveDiffieHellmanKeyPair(seed)
-	clientPrivKey, clientPubKey, err := DeriveKeyPair(seed, "OPAQUE-DeriveDiffieHellmanKeyPair")
+	clientPrivKey, clientPubKey, err := DeriveKeyPair(*seed, "OPAQUE-DeriveDiffieHellmanKeyPair")
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -515,19 +493,14 @@ const Nx = sha256.Size
 
 func DeriveSecret(baseSecret []byte, label string, transcriptHash []byte) []byte {
 	// TODO: check label and transcriptHash length
-	var info []byte
-	info = append(info, byte(Nx>>8), byte(Nx))
-	info = append(info, byte(len("OPAQUE-")+len(label)))
-	info = append(info, "OPAQUE-"...)
-	info = append(info, label...)
-	info = append(info, byte(len(transcriptHash)))
-	info = append(info, transcriptHash...)
-	r := hkdf.Expand(NewHash, baseSecret, info)
-	var derivedSecret = make([]byte, Nx)
-	if _, err := io.ReadFull(r, derivedSecret); err != nil {
-		panic("internal error: hkdf failed")
-	}
-	return derivedSecret
+	var info strings.Builder
+	info.Write([]byte{byte(Nx >> 8), byte(Nx)})
+	info.Write([]byte{byte(len("OPAQUE-") + len(label))})
+	info.WriteString("OPAQUE-")
+	info.WriteString(label)
+	info.Write([]byte{byte(len(transcriptHash))})
+	info.Write(transcriptHash)
+	return hkdfExpand(NewHash, baseSecret, info.String(), Nx)
 }
 
 // Deterministic key generation from RFC9497

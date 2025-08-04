@@ -3,10 +3,7 @@ package opaque
 import (
 	"encoding/hex"
 	"fmt"
-	"io"
 	"testing"
-
-	"golang.org/x/crypto/hkdf"
 )
 
 func TestExpandMessageXmd(t *testing.T) {
@@ -87,10 +84,7 @@ func TestOpaque(t *testing.T) {
 	abhor(t, err)
 	randomizedPassword, err := hex.DecodeString("06be0a1a51d56557a3adad57ba29c5510565dcd8b5078fa319151b9382258fb0")
 	abhor(t, err)
-	r := hkdf.Expand(NewHash, randomizedPassword, []byte("MaskingKey"))
-	maskingKey := make([]byte, Nh)
-	_, err = io.ReadFull(r, maskingKey)
-	abhor(t, err)
+	maskingKey := hkdfExpand(NewHash, randomizedPassword, "MaskingKey", Nh)
 	fmt.Printf("masking key = %x\n", maskingKey)
 	clientRegRecord := &ClientRegRecord{
 		pubKey:     clientPubKey,
