@@ -47,7 +47,6 @@ func TestOPRF(t *testing.T) {
 	if xx(output) != wantoutput {
 		t.Fatalf("BlindFinalize: output = %x, expected %v", output, wantoutput)
 	}
-
 }
 
 func TestDeriveKeyPair(t *testing.T) {
@@ -55,12 +54,8 @@ func TestDeriveKeyPair(t *testing.T) {
 	for i := range seed {
 		seed[i] = 0xa3
 	}
-	info := "\x74\x65\x73\x74\x20\x6b\x65\x79"
-	wantSK := "159749d750713afe245d2d39ccfaae8381c53ce92d098a9375ee70739c7ac0bf"
-	sk, pk, err := deriveKeyPair(seed, info)
+	sk, pk, err := deriveKeyPair(seed, "test key")
 	abhor(t, err)
-	if hex.EncodeToString(sk) != wantSK {
-		t.Fatalf("wrong sk\ngot %x\nwant %v", sk, wantSK)
-	}
-	_ = pk // TODO
+	checkBytes(t, "sk", sk, "159749d750713afe245d2d39ccfaae8381c53ce92d098a9375ee70739c7ac0bf")
+	checkBytes(t, "pk", pk, "036492512d6430f42df3ecdb2c03ea6d0b39cfacd4c4c4471afcf4102a2b38045e")
 }
