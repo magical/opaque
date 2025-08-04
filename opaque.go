@@ -621,6 +621,9 @@ func expand_message_xmd(msg []byte, DST string, len_in_bytes int) []byte {
 	if len(DST) > 255 {
 		panic("internal error: domain separation string too long (more than 255 bytes)")
 	}
+	if len_in_bytes > 65535 {
+		panic("internal error: requested length exceeds 65535")
+	}
 	var dstBytesWithLength = make([]byte, 0, len(DST)+1)
 	dstBytesWithLength = append(dstBytesWithLength, DST...)
 	dstBytesWithLength = append(dstBytesWithLength, uint8(len(DST)))
