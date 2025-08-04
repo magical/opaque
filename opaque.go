@@ -99,13 +99,13 @@ type KE2 struct {
 }
 type KE3 struct{ clientMAC []byte }
 
-func (c *ClientState) GenerateKE1(password []byte) (KE1, error) {
+func (c *ClientState) GenerateKE1(password []byte) (*KE1, error) {
 	request, blind := CreateCredentialRequest(password)
 	c.password = password
 	c.blind = blind
 	ke1, err := c.AuthClientStart(request)
 	if err != nil {
-		return KE1{}, err
+		return nil, err
 	}
 	return ke1, nil
 }
@@ -125,36 +125,36 @@ type ClientRegRecord struct {
 	pubKey, maskingKey, envelope []byte
 }
 
-func (s *ServerState) GenerateKE2(clientRegRecord *ClientRegRecord, credID, oprfSeed []byte, ke1 KE1, clientID []byte) (KE2, error) {
+func (s *ServerState) GenerateKE2(clientRegRecord *ClientRegRecord, credID, oprfSeed []byte, ke1 *KE1, clientID []byte) (*KE2, error) {
 	response, err := CreateCredentialResponse(&ke1.credentialRequest, s.pubKey, clientRegRecord, credID, oprfSeed)
 	if err != nil {
-		return KE2{}, err
+		return nil, err
 	}
 	credentials := CreateCleartextCredentials(s.pubKey, clientRegRecord.pubKey, s.serverID, clientID)
 	authResponse, err := s.AuthServerRespond(credentials, s.privKey, clientRegRecord.pubKey, ke1, response)
 	if err != nil {
-		return KE2{}, err
+		return nil, err
 	}
 
-	ke2 := KE2{*response, *authResponse}
+	ke2 := &KE2{*response, *authResponse}
 	return ke2, nil
 }
 
 var ClientAuthenticationError = errors.New("client authentication error")
 
-func (c *ClientState) GenerateKE3(clientID, serverID []byte, ke2 KE2) (ke3 KE3, sessionKey, exportKey []byte, err error) {
+func (c *ClientState) GenerateKE3(clientID, serverID []byte, ke2 *KE2) (ke3 *KE3, sessionKey, exportKey []byte, err error) {
 	privKey, credentials, exportKey, err := RecoverCredentials(c.password, c.blind, &ke2.credentialResponse, serverID, clientID)
 	if err != nil {
-		return KE3{}, nil, nil, err
+		return nil, nil, nil, err
 	}
 	ke3, sessionKey, err = c.AuthClientFinalize(credentials, privKey, ke2)
 	if err != nil {
-		return KE3{}, nil, nil, err
+		return nil, nil, nil, err
 	}
 	return ke3, sessionKey, exportKey, nil
 }
 
-func (s *ServerState) Finish(ke3 KE3) (sessionKey []byte, err error) {
+func (s *ServerState) Finish(ke3 *KE3) (sessionKey []byte, err error) {
 	if !hmac.Equal(ke3.clientMAC, s.expectedClientMAC) {
 		return nil, ClientAuthenticationError
 	}
@@ -339,20 +339,20 @@ func CreateCleartextCredentials(serverPubKey, clientPubKey, serverID, clientID [
 type AuthRequest struct{ clientNonce, clientPubKeyshare []byte }
 type AuthResponse struct{ serverNonce, serverPubKeyshare, serverMAC []byte }
 
-func (c *ClientState) AuthClientStart(request *CredentialRequest) (KE1, error) {
+func (c *ClientState) AuthClientStart(request *CredentialRequest) (*KE1, error) {
 	nonce := newRandomNonce()
 	seed := newRandomSeed()
 	// DeriveDiffieHellmanKeyPair
 	clientPrivKeyshare, clientPubKeyshare, err := DeriveKeyPair(seed, "OPAQUE-DeriveDiffieHellmanKeyPair")
 	if err != nil {
-		return KE1{}, err
+		return nil, err
 	}
 	c.clientPrivKeyshare = clientPrivKeyshare
 	c.ke1 = KE1{*request, AuthRequest{nonce, clientPubKeyshare}}
-	return c.ke1, nil
+	return &c.ke1, nil
 }
 
-func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []byte, clientPubKey []byte, ke1 KE1, credResponse *CredentialResponse) (*AuthResponse, error) {
+func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []byte, clientPubKey []byte, ke1 *KE1, credResponse *CredentialResponse) (*AuthResponse, error) {
 	//fmt.Printf("creds: %#v\n", creds)
 	//fmt.Printf("privkey: %x\n", privKey)
 	//fmt.Printf("clientPubKey: %x\n", clientPubKey)
@@ -367,7 +367,7 @@ func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []b
 	}
 	//fmt.Printf("server priv keyshare: %x\n", serverPrivKeyshare)
 	//fmt.Printf("server pub keyshare:  %x\n", serverPubKeyshare)
-	ke2 := KE2{*credResponse, AuthResponse{serverNonce, serverPubKeyshare, nil}}
+	ke2 := &KE2{*credResponse, AuthResponse{serverNonce, serverPubKeyshare, nil}}
 	ph := hashPreamble(creds.clientID, ke1, creds.serverID, ke2)
 	preambleHash := ph.Sum(nil)
 
@@ -394,7 +394,7 @@ func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []b
 
 var ServerAuthenticationError = errors.New("opaque: server authentication error")
 
-func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []byte, ke2 KE2) (_ KE3, sessionKey []byte, err error) {
+func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []byte, ke2 *KE2) (_ *KE3, sessionKey []byte, err error) {
 	dh1 := DiffieHellman(c.clientPrivKeyshare, ke2.authResponse.serverPubKeyshare)
 	dh2 := DiffieHellman(c.clientPrivKeyshare, creds.serverPubKey)
 	dh3 := DiffieHellman(privKey, ke2.authResponse.serverPubKeyshare)
@@ -402,24 +402,24 @@ func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []
 	ikm = append(ikm, dh1...)
 	ikm = append(ikm, dh2...)
 	ikm = append(ikm, dh3...)
-	ph := hashPreamble(creds.clientID, c.ke1, creds.serverID, ke2)
+	ph := hashPreamble(creds.clientID, &c.ke1, creds.serverID, ke2)
 	preambleHash := ph.Sum(nil)
 	km2, km3, sessionKey := DeriveKeys(ikm, preambleHash)
 	hm := hmac.New(NewHash, km2)
 	hm.Write(preambleHash)
 	expectedTag := hm.Sum(nil)
 	if !hmac.Equal(expectedTag, ke2.authResponse.serverMAC) && !ignoreAuthErrorsForTesting {
-		return KE3{}, nil, ServerAuthenticationError
+		return nil, nil, ServerAuthenticationError
 	}
 	// MAC(Hash(preamble || serverTag))
 	hm = hmac.New(NewHash, km3)
 	ph.Write(expectedTag)
 	hm.Write(ph.Sum(nil))
 	clientMAC := hm.Sum(nil)
-	return KE3{clientMAC}, sessionKey, nil
+	return &KE3{clientMAC}, sessionKey, nil
 }
 
-func hashPreamble(clientID []byte, ke1 KE1, serverID []byte, ke2 KE2) hash.Hash {
+func hashPreamble(clientID []byte, ke1 *KE1, serverID []byte, ke2 *KE2) hash.Hash {
 	//dumpPreamble(clientID, ke1, serverID, ke2)
 	h := NewHash()
 	h.Write([]byte("OPAQUEv1-"))
@@ -441,7 +441,7 @@ func hashPreamble(clientID []byte, ke1 KE1, serverID []byte, ke2 KE2) hash.Hash 
 }
 
 /*
-func dumpPreamble(clientID []byte, ke1 KE1, serverID []byte, ke2 KE2) {
+func dumpPreamble(clientID []byte, ke1 *KE1, serverID []byte, ke2 *KE2) {
 	w := func(b []byte) {
 		if printable(b) {
 			fmt.Printf("preamble | %q = % [1]x\n", b)
