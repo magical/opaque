@@ -8,7 +8,7 @@ import (
 	"math/big"
 	"sync"
 
-	"filippo.io/nistec"
+	"github.com/magical/nistec-extra"
 )
 
 const oprfContextString = "OPRFV1-\x00-"

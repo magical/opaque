@@ -2,6 +2,4 @@ module github.com/magical/opaque
 
 go 1.24.4
 
-require filippo.io/nistec v0.0.3
-
-replace filippo.io/nistec => ../../../filippo.io/nistec
+require github.com/magical/nistec-extra v0.0.0-20250804071240-c85145ceb2c9

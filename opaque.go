@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"filippo.io/nistec"
+	"github.com/magical/nistec-extra"
 )
 
 // https://eprint.iacr.org/2018/163.pdf
