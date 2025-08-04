@@ -98,6 +98,9 @@ func BlindFinalizeP256(input, blind, evaluatedElement []byte) ([]byte, error) {
 	}
 	evaluatedPoint.ScalarMult(evaluatedPoint, inverseBlind)
 	unblindedElement := evaluatedPoint.BytesCompressed()
+	if len(unblindedElement) > 0xffff {
+		panic("internal error: size of unblinded element exceeds 65535 bytes")
+	}
 	h := NewHash()
 	h.Write([]byte{byte(len(input) >> 8), byte(len(input))})
 	h.Write(input)

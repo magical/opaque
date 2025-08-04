@@ -301,6 +301,12 @@ func Recover(randomizedPassword, pubKey, envelope, serverID, clientID []byte) (p
 	credentials = CreateCleartextCredentials(pubKey, clientPubKey, serverID, clientID)
 	sidlen := len(credentials.serverID)
 	cidlen := len(credentials.clientID)
+	if sidlen > 65535 {
+		return nil, nil, nil, errors.New("opaque: server ID too long (more than 65535 bytes)")
+	}
+	if cidlen > 65535 {
+		return nil, nil, nil, errors.New("opaque: client ID too long (more than 65535 bytes)")
+	}
 	hm := hmac.New(NewHash, authKey)
 	hm.Write(envelopeNonce)
 	hm.Write(credentials.serverPubKey)
@@ -431,6 +437,15 @@ func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []
 
 func hashPreamble(clientID []byte, ke1 *KE1, serverID []byte, ke2 *KE2) hash.Hash {
 	//dumpPreamble(clientID, ke1, serverID, ke2)
+	if len(applicationContext) > 65535 {
+		panic("opaque: application context too large (more that 65535 bytes)")
+	}
+	if len(clientID) > 65535 {
+		panic("opaque: client ID too large (more that 65535 bytes)")
+	}
+	if len(serverID) > 65535 {
+		panic("opaque: client ID too large (more that 65535 bytes)")
+	}
 	h := NewHash()
 	h.Write([]byte("OPAQUEv1-"))
 	h.Write([]byte{byte(len(applicationContext) >> 8), byte(len(applicationContext))})
@@ -515,10 +530,20 @@ func DeriveKeys(ikm, preambleHash []byte) (km2, km3, sessionKey []byte) {
 
 func DeriveSecret(baseSecret []byte, label string, transcriptHash []byte) []byte {
 	// TODO: check label and transcriptHash length
+	if Nx > 65535 {
+		panic("internal error: Nx > 65535")
+	}
+	const labelPrefix = "OPAQUE-"
+	if len(label)+len(labelPrefix) > 255 {
+		panic("internal error: label too long (more than 247 bytes)")
+	}
+	if len(transcriptHash) > 255 {
+		panic("internal error: transcript hash too long (more than 255 bytes)")
+	}
 	var info strings.Builder
 	info.Write([]byte{byte(Nx >> 8), byte(Nx)})
-	info.Write([]byte{byte(len("OPAQUE-") + len(label))})
-	info.WriteString("OPAQUE-")
+	info.Write([]byte{byte(len(labelPrefix) + len(label))})
+	info.WriteString(labelPrefix)
 	info.WriteString(label)
 	info.Write([]byte{byte(len(transcriptHash))})
 	info.Write(transcriptHash)
@@ -538,7 +563,7 @@ var DeriveKeyPairError = errors.New("failed to derive key pair")
 func deriveKeyPair(seed [Nseed]byte, info string) (sk, pk []byte, err error) {
 	l := len(info)
 	if l > 65535 {
-		panic("info too long")
+		panic("internal error: info too long (more than 65535 bytes)")
 	}
 	var deriveInput []byte
 	deriveInput = append(deriveInput, seed[:]...)
@@ -599,6 +624,9 @@ var p256Prime = sync.OnceValue(func() *big.Int {
 })
 
 func expand_message_xmd(msg []byte, DST string, len_in_bytes int) []byte {
+	if len(DST) > 255 {
+		panic("internal error: domain separation string too long (more than 255 bytes)")
+	}
 	var dstBytesWithLength = make([]byte, 0, len(DST)+1)
 	dstBytesWithLength = append(dstBytesWithLength, DST...)
 	dstBytesWithLength = append(dstBytesWithLength, uint8(len(DST)))
