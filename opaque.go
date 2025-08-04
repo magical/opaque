@@ -235,7 +235,7 @@ const (
 )
 
 func RecoverCredentials(password []byte, blind []byte, response *CredentialResponse, serverID, clientID []byte) (privKey []byte, credentials *CleartextCredentials, exportKey []byte, err error) {
-	var oprf BlindSigner
+	var oprf BlindSigner = oprfP256
 	oprfOutput, err := oprf.Finalize(password, blind, response.evaluatedMessage)
 	if err != nil {
 		return nil, nil, nil, err
@@ -286,12 +286,14 @@ var EnvelopeRecoveryError = errors.New("opaque: failed to recover envelope")
 const Nh = sha256.Size
 const Nseed = 32
 
+var ignoreAuthErrorsForTesting = false
+
 func Recover(randomizedPassword, pubKey, envelope, serverID, clientID []byte) (privKey []byte, credentials *CleartextCredentials, exportKey []byte, err error) {
 	var authKey = make([]byte, Nh)
 	exportKey = make([]byte, Nh)
 	var seed [Nseed]byte
 	envelopeNonce := envelope[0:Nn]
-	envelopeAuthTag := envelope[Nn:Nm]
+	envelopeAuthTag := envelope[Nn : Nn+Nm]
 	r := hkdf.Expand(NewHash, randomizedPassword, concats(envelopeNonce, "AuthKey"))
 	if _, err := io.ReadFull(r, authKey); err != nil {
 		panic("hkdf failure: authKey")
@@ -311,16 +313,17 @@ func Recover(randomizedPassword, pubKey, envelope, serverID, clientID []byte) (p
 		return nil, nil, nil, err
 	}
 	credentials = CreateCleartextCredentials(pubKey, clientPubKey, serverID, clientID)
-	h := hmac.New(NewHash, authKey)
-	h.Write(envelopeNonce)
-	h.Write(credentials.serverPubKey)
-	h.Write(credentials.serverID)
-	h.Write(credentials.clientID)
-	tag := h.Sum(nil)
-	if !hmac.Equal(envelopeAuthTag, tag) {
-		secureClear(credentials.serverPubKey)
-		secureClear(credentials.serverID)
-		secureClear(credentials.clientID)
+	sidlen := len(credentials.serverID)
+	cidlen := len(credentials.clientID)
+	hm := hmac.New(NewHash, authKey)
+	hm.Write(envelopeNonce)
+	hm.Write(credentials.serverPubKey)
+	hm.Write([]byte{byte(sidlen >> 8), byte(sidlen)})
+	hm.Write(credentials.serverID)
+	hm.Write([]byte{byte(cidlen >> 8), byte(cidlen)})
+	hm.Write(credentials.clientID)
+	tag := hm.Sum(nil)
+	if !hmac.Equal(envelopeAuthTag, tag) && !ignoreAuthErrorsForTesting {
 		secureClear(clientPrivKey)
 		secureClear(clientPubKey)
 		secureClear(seed[:])
@@ -419,7 +422,7 @@ func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []
 	hm := hmac.New(NewHash, km2)
 	hm.Write(preambleHash)
 	expectedTag := hm.Sum(nil)
-	if !hmac.Equal(expectedTag, km3) {
+	if !hmac.Equal(expectedTag, ke2.authResponse.serverMAC) && !ignoreAuthErrorsForTesting {
 		return KE3{}, nil, ServerAuthenticationError
 	}
 	// MAC(Hash(preamble || serverTag))

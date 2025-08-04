@@ -150,9 +150,43 @@ func TestOpaque(t *testing.T) {
 			"50a73b145bc87a157e8c58c0342e2047ee22ae37b63db17e0a82a30fcc4ecf7b"),
 		checkBytes(t, "KE2/expected client mac", s.expectedClientMAC,
 			"e97cab4433aa39d598e76f13e768bba61c682947bdcf9936035e8a3a3ebfb66e"),
+		checkBytes(t, "KE2/server session key", s.sessionKey,
+			"484ad345715ccce138ca49e4ea362c6183f0949aaaa1125dc3bc3f80876e7cd1"),
 	) {
 		return
 	}
+
+	// ---- KE3 ----
+
+	// no more random values needed
+	// the last step is all about combining the previous steps
+	// and checking the other side's work
+
+	ke3, sessionKey, exportKey, err := c.GenerateKE3(clientID, serverID, ke2)
+	abhor(t, err)
+
+	if !all(
+		checkBytes(t, "KE3/client mac", ke3.clientMAC,
+			"e97cab4433aa39d598e76f13e768bba61c682947bdcf9936035e8a3a3ebfb66e"),
+		checkBytes(t, "KE3/session key", sessionKey,
+			"484ad345715ccce138ca49e4ea362c6183f0949aaaa1125dc3bc3f80876e7cd1"),
+		checkBytes(t, "KE3/export key", exportKey,
+			"c3c9a1b0e33ac84dd83d0b7e8af6794e17e7a3caadff289fbd9dc769a853c64b"),
+	) {
+		return
+	}
+
+	// ---- ServerFinish ----
+	//
+
+	finalSessionKey, err := s.Finish(ke3)
+	abhor(t, err)
+
+	if !checkBytes(t, "Finish/session key", finalSessionKey,
+		"484ad345715ccce138ca49e4ea362c6183f0949aaaa1125dc3bc3f80876e7cd1") {
+		return
+	}
+
 }
 
 func all(xs ...bool) bool {
