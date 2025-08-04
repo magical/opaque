@@ -100,14 +100,15 @@ type KE2 struct {
 type KE3 struct{ clientMAC []byte }
 
 func (c *ClientState) GenerateKE1(password []byte) (*KE1, error) {
-	request, blind := CreateCredentialRequest(password)
+	credRequest, blind := CreateCredentialRequest(password)
 	c.password = password
 	c.blind = blind
-	ke1, err := c.AuthClientStart(request)
+	authRequest, err := c.AuthClientStart(credRequest)
 	if err != nil {
 		return nil, err
 	}
-	return ke1, nil
+	c.ke1 = KE1{*credRequest, *authRequest}
+	return &c.ke1, nil
 }
 
 type ServerState struct {
@@ -147,11 +148,11 @@ func (c *ClientState) GenerateKE3(clientID, serverID []byte, ke2 *KE2) (ke3 *KE3
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	ke3, sessionKey, err = c.AuthClientFinalize(credentials, privKey, ke2)
+	clientMAC, sessionKey, err := c.AuthClientFinalize(credentials, privKey, ke2)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return ke3, sessionKey, exportKey, nil
+	return &KE3{clientMAC}, sessionKey, exportKey, nil
 }
 
 func (s *ServerState) Finish(ke3 *KE3) (sessionKey []byte, err error) {
@@ -339,7 +340,7 @@ func CreateCleartextCredentials(serverPubKey, clientPubKey, serverID, clientID [
 type AuthRequest struct{ clientNonce, clientPubKeyshare []byte }
 type AuthResponse struct{ serverNonce, serverPubKeyshare, serverMAC []byte }
 
-func (c *ClientState) AuthClientStart(request *CredentialRequest) (*KE1, error) {
+func (c *ClientState) AuthClientStart(request *CredentialRequest) (*AuthRequest, error) {
 	nonce := newRandomNonce()
 	seed := newRandomSeed()
 	// DeriveDiffieHellmanKeyPair
@@ -348,8 +349,7 @@ func (c *ClientState) AuthClientStart(request *CredentialRequest) (*KE1, error) 
 		return nil, err
 	}
 	c.clientPrivKeyshare = clientPrivKeyshare
-	c.ke1 = KE1{*request, AuthRequest{nonce, clientPubKeyshare}}
-	return &c.ke1, nil
+	return &AuthRequest{nonce, clientPubKeyshare}, nil
 }
 
 func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []byte, clientPubKey []byte, ke1 *KE1, credResponse *CredentialResponse) (*AuthResponse, error) {
@@ -394,7 +394,7 @@ func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []b
 
 var ServerAuthenticationError = errors.New("opaque: server authentication error")
 
-func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []byte, ke2 *KE2) (_ *KE3, sessionKey []byte, err error) {
+func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []byte, ke2 *KE2) (clientMAC, sessionKey []byte, err error) {
 	dh1 := DiffieHellman(c.clientPrivKeyshare, ke2.authResponse.serverPubKeyshare)
 	dh2 := DiffieHellman(c.clientPrivKeyshare, creds.serverPubKey)
 	dh3 := DiffieHellman(privKey, ke2.authResponse.serverPubKeyshare)
@@ -415,8 +415,8 @@ func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []
 	hm = hmac.New(NewHash, km3)
 	ph.Write(expectedTag)
 	hm.Write(ph.Sum(nil))
-	clientMAC := hm.Sum(nil)
-	return &KE3{clientMAC}, sessionKey, nil
+	clientMAC = hm.Sum(nil)
+	return clientMAC, sessionKey, nil
 }
 
 func hashPreamble(clientID []byte, ke1 *KE1, serverID []byte, ke2 *KE2) hash.Hash {
