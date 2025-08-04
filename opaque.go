@@ -90,11 +90,11 @@ type ClientState struct {
 }
 
 type KE1 struct {
-	credentialRequest *CredentialRequest
+	credentialRequest CredentialRequest
 	authRequest       AuthRequest
 }
 type KE2 struct {
-	credentialResponse *CredentialResponse
+	credentialResponse CredentialResponse
 	authResponse       AuthResponse
 }
 type KE3 struct{ clientMAC []byte }
@@ -126,7 +126,7 @@ type ClientRegRecord struct {
 }
 
 func (s *ServerState) GenerateKE2(clientRegRecord *ClientRegRecord, credID, oprfSeed []byte, ke1 KE1, clientID []byte) (KE2, error) {
-	response, err := CreateCredentialResponse(ke1.credentialRequest, s.pubKey, clientRegRecord, credID, oprfSeed)
+	response, err := CreateCredentialResponse(&ke1.credentialRequest, s.pubKey, clientRegRecord, credID, oprfSeed)
 	if err != nil {
 		return KE2{}, err
 	}
@@ -136,14 +136,14 @@ func (s *ServerState) GenerateKE2(clientRegRecord *ClientRegRecord, credID, oprf
 		return KE2{}, err
 	}
 
-	ke2 := KE2{response, *authResponse}
+	ke2 := KE2{*response, *authResponse}
 	return ke2, nil
 }
 
 var ClientAuthenticationError = errors.New("client authentication error")
 
 func (c *ClientState) GenerateKE3(clientID, serverID []byte, ke2 KE2) (ke3 KE3, sessionKey, exportKey []byte, err error) {
-	privKey, credentials, exportKey, err := RecoverCredentials(c.password, c.blind, ke2.credentialResponse, serverID, clientID)
+	privKey, credentials, exportKey, err := RecoverCredentials(c.password, c.blind, &ke2.credentialResponse, serverID, clientID)
 	if err != nil {
 		return KE3{}, nil, nil, err
 	}
@@ -348,7 +348,7 @@ func (c *ClientState) AuthClientStart(request *CredentialRequest) (KE1, error) {
 		return KE1{}, err
 	}
 	c.clientPrivKeyshare = clientPrivKeyshare
-	c.ke1 = KE1{request, AuthRequest{nonce, clientPubKeyshare}}
+	c.ke1 = KE1{*request, AuthRequest{nonce, clientPubKeyshare}}
 	return c.ke1, nil
 }
 
@@ -367,7 +367,7 @@ func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []b
 	}
 	//fmt.Printf("server priv keyshare: %x\n", serverPrivKeyshare)
 	//fmt.Printf("server pub keyshare:  %x\n", serverPubKeyshare)
-	ke2 := KE2{credResponse, AuthResponse{serverNonce, serverPubKeyshare, nil}}
+	ke2 := KE2{*credResponse, AuthResponse{serverNonce, serverPubKeyshare, nil}}
 	ph := hashPreamble(creds.clientID, ke1, creds.serverID, ke2)
 	preambleHash := ph.Sum(nil)
 
