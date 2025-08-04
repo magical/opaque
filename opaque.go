@@ -57,7 +57,7 @@ type BlindEvaluator interface {
 
 // Deterministically derived a key pair from a 32-byte seed
 // and an (optional) info string.
-func DeriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
+func DeriveKeyPair(seed [Nseed]byte, info string) (sk, pk []byte, err error) {
 	return deriveKeyPair(seed, info)
 }
 
@@ -535,7 +535,7 @@ var DeriveKeyPairError = errors.New("failed to derive key pair")
 
 //const contextString = "OPRFV1-\x00-OPAQUE-POC"
 
-func deriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
+func deriveKeyPair(seed [Nseed]byte, info string) (sk, pk []byte, err error) {
 	l := len(info)
 	if l > 65535 {
 		panic("info too long")

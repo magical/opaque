@@ -11,7 +11,8 @@ import (
 	"filippo.io/nistec"
 )
 
-var oprfContextString = "OPRFV1-\x00-"
+const oprfContextString = "OPRFV1-\x00-"
+const oprfSuite = "P256-SHA256"
 
 // TODO: Applications MUST check that input Element values received over the wire are not the group identity element. This check is handled after deserializing Element values; see Section 4 for more information and requirements on input validation for each ciphersuite.
 
@@ -23,7 +24,7 @@ func randomScalar() []byte {
 	}
 	//  4.7.2. Random Number Generation Using Extra Random Bits
 	// Generate a random byte array with L = ceil(((3 * ceil(log2(G.Order()))) / 2) / 8) bytes, and interpret it as an integer; reduce the integer modulo G.Order(), and return the result. See [RFC9380], Section 5 for the underlying derivation of L.
-	L := (256 + 128) / 8
+	const L = (256 + 128) / 8
 	var buf = make([]byte, L)
 	if _, err := rand.Read(buf); err != nil {
 		panic("entropy failure")
@@ -31,12 +32,11 @@ func randomScalar() []byte {
 	e := new(big.Int).SetBytes(buf) // big endian
 	// TODO: constant time?
 	e.Mod(e, p256Order())
-	// TODO: left pad with zeros?
 	scalar := e.Bytes()
-	if len(scalar) < 32 {
-		padded := make([]byte, 32)
-		n := 32 - len(scalar)
-		copy(padded[n:32], scalar[:])
+	// left pad with zeros, if necessary
+	if len(scalar) < Nok {
+		padded := make([]byte, Nok)
+		copy(padded[Nok-len(scalar):Nok], scalar[:])
 		return padded
 	}
 	return scalar
@@ -121,7 +121,7 @@ func HashToGroupP256(msg []byte) *nistec.P256Point {
 	// 6. return P
 
 	const L = (256 + 128) / 8
-	var dst = "HashToGroup-" + oprfContextString + "P256-SHA256"
+	const dst = "HashToGroup-" + oprfContextString + oprfSuite
 	expandedBytes := expand_message_xmd(msg, dst, L+L)
 	p, err := nistec.HashToCurve(expandedBytes)
 	if err != nil {
