@@ -2,19 +2,18 @@ package opaque
 
 import (
 	"bytes"
+	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
 	"hash"
-	"io"
 	"math/big"
 	"strings"
 	"sync"
 
 	"filippo.io/nistec"
-	"golang.org/x/crypto/hkdf"
 )
 
 // https://eprint.iacr.org/2018/163.pdf
@@ -62,11 +61,18 @@ func DeriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
 	return deriveKeyPair(seed, info)
 }
 
+func hkdfExtract(h func() hash.Hash, secret, salt []byte) []byte {
+	out, err := hkdf.Extract(h, secret, salt)
+	if err != nil {
+		panic(err) // shouldn't happen
+	}
+	return out
+}
+
 func hkdfExpand(h func() hash.Hash, secret []byte, info string, size int) []byte {
-	out := make([]byte, size)
-	r := hkdf.Expand(h, secret, []byte(info))
-	if _, err := io.ReadFull(r, out); err != nil {
-		panic("hkdf failure") // shouldn't happen
+	out, err := hkdf.Expand(h, secret, info, size)
+	if err != nil {
+		panic(err) // shouldn't happen
 	}
 	return out
 }
@@ -243,7 +249,7 @@ func RecoverCredentials(password []byte, blind []byte, response *CredentialRespo
 		return nil, nil, nil, err
 	}
 	kdfInfo := append(oprfOutput, stretchedOutput...)
-	randomizedPassword := hkdf.Extract(NewHash, kdfInfo, nil)
+	randomizedPassword := hkdfExtract(NewHash, kdfInfo, nil)
 	maskingKey := hkdfExpand(NewHash, randomizedPassword, "MaskingKey", Nh)
 	xorpad := hkdfExpand(NewHash, maskingKey, concats(response.maskingNonce, "CredentialResponsePad"), Npk+Nn+Nm)
 	var unmaskedResponse = make([]byte, len(response.maskedResponse))
@@ -478,7 +484,7 @@ func DiffieHellman(privKey, pubKey []byte) []byte {
 }
 
 func DeriveKeys(ikm, preambleHash []byte) (km2, km3, sessionKey []byte) {
-	prk := hkdf.Extract(NewHash, ikm, nil)
+	prk := hkdfExtract(NewHash, ikm, nil)
 	handshakeSecret := DeriveSecret(prk, "HandshakeSecret", preambleHash)
 	sessionKey = DeriveSecret(prk, "SessionKey", preambleHash)
 	//fmt.Printf("preamble hash: %x\n", preambleHash)
