@@ -169,7 +169,21 @@ func TestOpaque(t *testing.T) {
 		"484ad345715ccce138ca49e4ea362c6183f0949aaaa1125dc3bc3f80876e7cd1") {
 		return
 	}
+}
 
+func TestDeriveSecret(t *testing.T) {
+	prk, err := hex.DecodeString("cbebc019b01890eaa5827c85d98bff61b2672d792f8894cd2ad79803f758c20c")
+	abhor(t, err)
+	preambleHash, err := hex.DecodeString("3a97683cff5696886eee44d1e79e74ffbe634b2d889da838ddc598c312ec8b1f")
+	abhor(t, err)
+	handshakeSecret := DeriveSecret(prk, "HandshakeSecret", preambleHash)
+	checkBytes(t, "handshake secret", handshakeSecret, "83a932431a8f25bad042f008efa2b07c6cd0faa8285f335b6363546a9f9b235f")
+	sessionKey := DeriveSecret(prk, "SessionKey", preambleHash)
+	checkBytes(t, "session key", sessionKey, "484ad345715ccce138ca49e4ea362c6183f0949aaaa1125dc3bc3f80876e7cd1")
+	km2 := DeriveSecret(handshakeSecret, "ServerMAC", nil)
+	checkBytes(t, "km2", km2, "13e928581febfad28855e3e7f03306d61bd69489686f621535d44a1365b73b0d")
+	km3 := DeriveSecret(handshakeSecret, "ClientMAC", nil)
+	checkBytes(t, "km3", km3, "afdc53910c25183b08b930e6953c35b3466276736d9de2e9c5efaf150f4082c5")
 }
 
 func all(xs ...bool) bool {
@@ -199,7 +213,6 @@ func checkBytes(t *testing.T, name string, actual []byte, expected string) bool 
 	return true
 }
 
-// TODO: test DeriveSecret
 // TODO: test preamble hash
 // TODO: test DiffieHellman
 // TODO: test handshakeSecret
