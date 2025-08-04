@@ -85,7 +85,7 @@ func TestOpaque(t *testing.T) {
 	randomizedPassword, err := hex.DecodeString("06be0a1a51d56557a3adad57ba29c5510565dcd8b5078fa319151b9382258fb0")
 	abhor(t, err)
 	maskingKey := hkdfExpand(NewHash, randomizedPassword, "MaskingKey", Nh)
-	fmt.Printf("masking key = %x\n", maskingKey)
+	//fmt.Printf("masking key = %x\n", maskingKey)
 	clientRegRecord := &ClientRegRecord{
 		pubKey:     clientPubKey,
 		maskingKey: maskingKey,
