@@ -371,13 +371,18 @@ func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []b
 	km2, km3, sessionKey := DeriveKeys(ikm, preambleHash)
 	//fmt.Printf("km2 %x\n", km2)
 	//fmt.Printf("km3 %x\n", km3)
+
+	// serverMAC = MAC(km2, Hash(preamble))
 	hm := hmac.New(NewHash, km2)
 	hm.Write(preambleHash)
 	serverMAC := hm.Sum(nil)
-	ph.Write(serverMAC)
+
+	// clientMAC = MAC(km3, Hash(preamble || serverMAC))
 	hm = hmac.New(NewHash, km3)
+	ph.Write(serverMAC)
 	hm.Write(ph.Sum(nil))
 	s.expectedClientMAC = hm.Sum(nil)
+
 	s.sessionKey = sessionKey
 	return &AuthResponse{serverNonce, serverPubKeyshare, serverMAC}, nil
 }
@@ -385,6 +390,9 @@ func (s *ServerState) AuthServerRespond(creds *CleartextCredentials, privKey []b
 var ServerAuthenticationError = errors.New("opaque: server authentication error")
 
 func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []byte, ke2 *KE2) (clientMAC, sessionKey []byte, err error) {
+	ph := hashPreamble(creds.clientID, &c.ke1, creds.serverID, ke2)
+	preambleHash := ph.Sum(nil)
+
 	dh1 := DiffieHellman(c.clientPrivKeyshare, ke2.authResponse.serverPubKeyshare)
 	dh2 := DiffieHellman(c.clientPrivKeyshare, creds.serverPubKey)
 	dh3 := DiffieHellman(privKey, ke2.authResponse.serverPubKeyshare)
@@ -392,20 +400,23 @@ func (c *ClientState) AuthClientFinalize(creds *CleartextCredentials, privKey []
 	ikm = append(ikm, dh1...)
 	ikm = append(ikm, dh2...)
 	ikm = append(ikm, dh3...)
-	ph := hashPreamble(creds.clientID, &c.ke1, creds.serverID, ke2)
-	preambleHash := ph.Sum(nil)
 	km2, km3, sessionKey := DeriveKeys(ikm, preambleHash)
+
+	// serverMAC = MAC(km2, Hash(preamble))
 	hm := hmac.New(NewHash, km2)
 	hm.Write(preambleHash)
-	expectedTag := hm.Sum(nil)
-	if !hmac.Equal(expectedTag, ke2.authResponse.serverMAC) && !ignoreAuthErrorsForTesting {
+	expectedServerMAC := hm.Sum(nil)
+
+	if !hmac.Equal(expectedServerMAC, ke2.authResponse.serverMAC) && !ignoreAuthErrorsForTesting {
 		return nil, nil, ServerAuthenticationError
 	}
-	// MAC(Hash(preamble || serverTag))
+
+	// clientMAC = MAC(km3, Hash(preamble || serverMAC))
 	hm = hmac.New(NewHash, km3)
-	ph.Write(expectedTag)
+	ph.Write(expectedServerMAC)
 	hm.Write(ph.Sum(nil))
 	clientMAC = hm.Sum(nil)
+
 	return clientMAC, sessionKey, nil
 }
 
@@ -483,6 +494,7 @@ func DeriveKeys(ikm, preambleHash []byte) (km2, km3, sessionKey []byte) {
 	prk := hkdfExtract(NewHash, ikm, nil)
 	handshakeSecret := DeriveSecret(prk, "HandshakeSecret", preambleHash)
 	sessionKey = DeriveSecret(prk, "SessionKey", preambleHash)
+	//fmt.Printf("prk: %x\n", prk)
 	//fmt.Printf("preamble hash: %x\n", preambleHash)
 	//fmt.Printf("handshake secret: %x\n", handshakeSecret)
 	//fmt.Printf("session key: %x\n", sessionKey)
