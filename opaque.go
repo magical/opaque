@@ -61,6 +61,8 @@ func DeriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
 	return deriveKeyPair(seed, info)
 }
 
+// ----
+
 func hkdfExtract(h func() hash.Hash, secret, salt []byte) []byte {
 	out, err := hkdf.Extract(h, secret, salt)
 	if err != nil {
@@ -77,8 +79,24 @@ func hkdfExpand(h func() hash.Hash, secret []byte, info string, size int) []byte
 	return out
 }
 
-const Noe = 33 //size of serialized element
-const Nok = 32 //size of OPRF private key
+// ---
+
+const (
+	Noe = 33 // size of serialized OPRF element
+	Nok = 32 // size of serialized OPRF private key
+
+	Npk = 33 // size of serialized DH public key
+	Nsk = 33 // size of serialized DH secret key
+
+	Nn    = 32 // size of a nonce
+	Nseed = 32 // size of the seed for a keypair
+
+	Nh = sha256.Size // output size of Hash
+	Nm = sha256.Size // output size of HMAC
+	Nx = sha256.Size // output size of HKDF-Extract
+)
+
+// ---
 
 type ClientState struct {
 	// oprf state
@@ -229,12 +247,6 @@ func CreateCredentialResponse(request *CredentialRequest, pubKey []byte, clientR
 	}, nil
 }
 
-const (
-	Npk = 33
-	Nn  = Nseed
-	Nm  = sha256.Size
-)
-
 func RecoverCredentials(password []byte, blind []byte, response *CredentialResponse, serverID, clientID []byte) (privKey []byte, credentials *CleartextCredentials, exportKey []byte, err error) {
 	var oprf BlindSigner = oprfP256
 	oprfOutput, err := oprf.Finalize(password, blind, response.evaluatedMessage)
@@ -270,9 +282,6 @@ func concats(a []byte, b string) string {
 }
 
 var EnvelopeRecoveryError = errors.New("opaque: failed to recover envelope")
-
-const Nh = sha256.Size
-const Nseed = 32
 
 var ignoreAuthErrorsForTesting = false
 
@@ -325,7 +334,7 @@ func CreateCleartextCredentials(serverPubKey, clientPubKey, serverID, clientID [
 	}
 }
 
-///
+// ----
 
 type AuthRequest struct{ clientNonce, clientPubKeyshare []byte }
 type AuthResponse struct{ serverNonce, serverPubKeyshare, serverMAC []byte }
@@ -502,8 +511,6 @@ func DeriveKeys(ikm, preambleHash []byte) (km2, km3, sessionKey []byte) {
 	km3 = DeriveSecret(handshakeSecret, "ClientMAC", nil)
 	return km2, km3, sessionKey
 }
-
-const Nx = sha256.Size
 
 func DeriveSecret(baseSecret []byte, label string, transcriptHash []byte) []byte {
 	// TODO: check label and transcriptHash length
