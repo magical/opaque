@@ -537,7 +537,7 @@ func deriveKeyPair(seed [32]byte, info string) (sk, pk []byte, err error) {
 	deriveInput = append(deriveInput, byte(l>>8), byte(l))
 	deriveInput = append(deriveInput, info...)
 	deriveInput = append(deriveInput, 0) // counter
-	for counter := 0; counter < 256; counter++ {
+	for counter := range 256 {
 		deriveInput[len(deriveInput)-1] = uint8(counter)
 		// RFC9497
 		// Section 4.3:
