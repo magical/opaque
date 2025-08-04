@@ -111,6 +111,12 @@ func (c *ClientState) GenerateKE1(password []byte) (KE1, error) {
 }
 
 type ServerState struct {
+	// global state
+	serverID []byte
+	privKey  []byte
+	pubKey   []byte
+
+	// per-connection state
 	expectedClientMAC []byte
 	sessionKey        []byte
 }
@@ -119,13 +125,13 @@ type ClientRegRecord struct {
 	pubKey, maskingKey, envelope []byte
 }
 
-func (s *ServerState) GenerateKE2(serverID, privKey, pubKey []byte, clientRegRecord *ClientRegRecord, credID, oprfSeed []byte, ke1 KE1, clientID []byte) (KE2, error) {
-	response, err := CreateCredentialResponse(ke1.credentialRequest, pubKey, clientRegRecord, credID, oprfSeed)
+func (s *ServerState) GenerateKE2(clientRegRecord *ClientRegRecord, credID, oprfSeed []byte, ke1 KE1, clientID []byte) (KE2, error) {
+	response, err := CreateCredentialResponse(ke1.credentialRequest, s.pubKey, clientRegRecord, credID, oprfSeed)
 	if err != nil {
 		return KE2{}, err
 	}
-	credentials := CreateCleartextCredentials(pubKey, clientRegRecord.pubKey, serverID, clientID)
-	authResponse, err := s.AuthServerRespond(credentials, privKey, clientRegRecord.pubKey, ke1, response)
+	credentials := CreateCleartextCredentials(s.pubKey, clientRegRecord.pubKey, s.serverID, clientID)
+	authResponse, err := s.AuthServerRespond(credentials, s.privKey, clientRegRecord.pubKey, ke1, response)
 	if err != nil {
 		return KE2{}, err
 	}

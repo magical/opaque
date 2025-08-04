@@ -110,7 +110,10 @@ func TestOpaque(t *testing.T) {
 	defer func() { fixedNonceForTesting2 = nil }()
 
 	var s ServerState
-	ke2, err := s.GenerateKE2(serverID, serverPrivKey, serverPubKey, clientRegRecord, credID, oprfSeed, ke1, clientID)
+	s.serverID = nil
+	s.privKey = serverPrivKey
+	s.pubKey = serverPubKey
+	ke2, err := s.GenerateKE2(clientRegRecord, credID, oprfSeed, ke1, clientID)
 	abhor(t, err)
 
 	if !all(
